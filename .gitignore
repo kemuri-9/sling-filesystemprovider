@@ -1,0 +1,9 @@
+.gradle/
+.settings/
+bin/
+build/
+.classpath
+.project
+*.log
+*.diff
+*.reject
