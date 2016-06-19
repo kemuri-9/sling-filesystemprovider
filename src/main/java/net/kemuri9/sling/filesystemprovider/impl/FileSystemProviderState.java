@@ -15,16 +15,36 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import org.apache.sling.api.resource.PersistenceException;
+
 /**
  * State management of the file system provider.
  * Holds transient changes and other state related information
  */
-final class FileSystemProviderState {
+final class FileSystemProviderState implements AutoCloseable {
 
-    /** state of the  */
+    /** state of the "session" being live */
     public boolean isLive;
+
+    /** username that the system is authenticated with */
+    public String username;
 
     public FileSystemProviderState() {
         this.isLive = true;
+        // default to anonymous
+        username = "anonymous";
+    }
+
+    @Override
+    public void close() {
+        isLive = false;
+    }
+
+    public void revert() throws PersistenceException {
+
+    }
+
+    public void commit() throws PersistenceException {
+
     }
 }

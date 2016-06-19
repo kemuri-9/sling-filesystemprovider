@@ -20,9 +20,33 @@ package net.kemuri9.sling.filesystemprovider.impl;
  */
 final class FSPConstants {
 
+    /** Filename extension indicating binary content */
+    public static final String FSP_EXTENSION_BINARY = ".bin";
+
     /**
      * Prefix that is on all internal files managed by the FSP system.
      * Such files should not be returned nor listed as possible resources.
      */
     public static final String FSP_FILENAME_PREFIX = "_sling_fsp_";
+
+    /** Filename fragment indicating the properties of a resource */
+    public static final String FSP_PROPERTIES_FILE = "properties";
+
+    /** JSON Property key indicating the state of utilizing external (to the JSON) storage */
+    public static final String JSON_KEY_EXTERNAL = "external";
+
+    /** JSON Property key indicating the type of property */
+    public static final String JSON_KEY_TYPE = "type";
+
+    /** JSON Property key indicating the singular value of the property */
+    public static final String JSON_KEY_VALUE = "value";
+
+    /** JSON Property key indicating the multiple values of the property */
+    public static final String JSON_KEY_VALUES = "values";
+
+    /** Property name indicating the resource's syper type */
+    public static final String PROPERTY_RESOURCE_SUPER_TYPE = "sling:resourceSuperType";
+
+    /** Property name indicating the resource's type */
+    public static final String PROPERTY_RESOURCE_TYPE = "sling:resourceType";
 }

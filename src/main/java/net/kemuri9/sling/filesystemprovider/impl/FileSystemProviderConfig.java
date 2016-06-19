@@ -26,6 +26,10 @@ public @interface FileSystemProviderConfig {
             description = "Root paths that this provider is mounted at to start providing for")
     String[] provider_root() default {"/"};
 
+    @AttributeDefinition(name = "File Repository Root",
+            description = "Root path under the sling home directory that stores the contents of the file repository")
+    String repository_root() default "filerepository";
+
     @AttributeDefinition(name = "Compress JSON Property storage",
             description = "State of Compressing the JSON file that manages properties of Resources")
     JSONCompression json_property_compression() default JSONCompression.NONE;

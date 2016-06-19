@@ -15,8 +15,9 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
-import java.io.FilterInputStream;
-import java.io.FilterOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -28,43 +29,80 @@ import java.util.zip.InflaterInputStream;
 enum JSONCompression {
 
     /** None */
-    NONE(null, null, ".json"),
+    NONE(".json"),
 
     /** GZIP */
-    GZIP(GZIPOutputStream.class, GZIPInputStream.class, ".json.gz"),
+    GZIP(".json.gz"),
 
     /* ZIP is left out due to the fact that it is more overhead compared to GZIP/ZLIB
      * as ZIP is an archive format meant for multiple files.
      * Here things are only a single file so there is no need for multiple file support. */
 
     /** ZLIB, a.k.a. "Deflate" */
-    ZLIB(DeflaterOutputStream.class, InflaterInputStream.class, ".json.zlib");
+    ZLIB(".json.zlib");
 
     /** File extension for the format */
     final String extension;
 
-    /**
-     * Class to utilize in decompressing file contents
-     * {@code null} if there is not one.
-     */
-    final Class<? extends FilterInputStream> inputClass;
-
-    /**
-     * Class to utilize in compressing file contents.
-     * {@code null} if there is not one.
-     */
-    final Class<? extends FilterOutputStream> outputClass;
 
     /**
      * Construct new enumeration value.
-     * @param output output stream class that performs the compression.
-     * @param input input stream class that performs the decompression.
      * @param extension preferred extension for the format.
      */
-    private JSONCompression(Class<? extends FilterOutputStream> output,
-            Class<? extends FilterInputStream> input, String extension) {
-        this.outputClass = output;
-        this.inputClass = input;
+    private JSONCompression(String extension) {
         this.extension = extension;
+    }
+
+    public static JSONCompression fromExtension(String extension) {
+        for (JSONCompression val : values()) {
+            if (val.extension.equals(extension)) {
+                return val;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Wrap the input stream to include any necessary decompression for the format
+     * @param inputStream the input stream to wrap
+     * @return the wrapped (decompressed) input stream
+     * @throws IOException if the stream can not be processed per the compression format
+     */
+    public InputStream wrapInput(InputStream inputStream) throws IOException {
+        if (inputStream == null) {
+            return null;
+        }
+        switch (this) {
+        case GZIP:
+            return new GZIPInputStream(inputStream);
+        case NONE:
+            return inputStream;
+        case ZLIB:
+            return new InflaterInputStream(inputStream);
+        default:
+            throw new RuntimeException("A type was missed, fix this now");
+        }
+    }
+
+    /**
+     * Wrap the output stream to include any necessary compression for the format
+     * @param outputStream the output stream to wrap
+     * @return the wrapped (compressed) output stream
+     * @throws IOException if the stream can not be processed per the compression format
+     */
+    public OutputStream wrapOutput(OutputStream outputStream) throws IOException {
+        if (outputStream == null) {
+            return null;
+        }
+        switch (this) {
+        case GZIP:
+            return new GZIPOutputStream(outputStream);
+        case NONE:
+            return outputStream;
+        case ZLIB:
+            return new DeflaterOutputStream(outputStream);
+        default:
+            throw new RuntimeException("A type was missed, fix this now");
+        }
     }
 }
