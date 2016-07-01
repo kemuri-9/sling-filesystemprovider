@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-import org.apache.commons.io.IOUtils;
 import org.apache.sling.api.resource.AbstractResource;
 import org.apache.sling.api.resource.ModifiableValueMap;
 import org.apache.sling.api.resource.Resource;
@@ -40,7 +39,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Resource within the File system Provider system
  */
-class FileSystemProviderResource extends AbstractResource {
+final class FileSystemProviderResource extends AbstractResource {
 
     /** slf4j logger */
     private static Logger log = LoggerFactory.getLogger(FileSystemProviderResource.class);
@@ -50,10 +49,10 @@ class FileSystemProviderResource extends AbstractResource {
         @Override
         public boolean accept(File pathname) {
             String name = pathname.getName();
-            if (!name.startsWith(FSPConstants.FSP_FILENAME_PREFIX + FSPConstants.FSP_PROPERTIES_FILE)) {
+            if (!name.startsWith(FSPConstants.FILENAME_PREFIX_FSP + FSPConstants.FILENAME_FRAGMENT_PROPERTIES_FILE)) {
                 return false;
             }
-            String suffix = name.substring((FSPConstants.FSP_FILENAME_PREFIX + FSPConstants.FSP_PROPERTIES_FILE).length());
+            String suffix = name.substring((FSPConstants.FILENAME_PREFIX_FSP + FSPConstants.FILENAME_FRAGMENT_PROPERTIES_FILE).length());
             JSONCompression compression = JSONCompression.fromExtension(suffix);
             return compression != null;
         }
@@ -130,7 +129,7 @@ class FileSystemProviderResource extends AbstractResource {
             JSONCompression compression = compressionFromFile(propFile);
             try (InputStreamReader reader = new InputStreamReader(
                     compression.wrapInput(new FileInputStream(propFile)), StandardCharsets.UTF_8)) {
-                String content = IOUtils.toString(reader);
+                String content = Util.slurp(reader);
                 properties = new JSONObject(content);
             } catch (FileNotFoundException e) {
                 log.error("Property file '{}' disappeared", propFile.getAbsolutePath());
@@ -150,7 +149,7 @@ class FileSystemProviderResource extends AbstractResource {
 
     @Override
     public ValueMap getValueMap() {
-        return new FileSystemProviderValueMap(getProperties());
+        return new FileSystemProviderValueMap(getPath(), getProperties());
     }
 
     @SuppressWarnings("unchecked")

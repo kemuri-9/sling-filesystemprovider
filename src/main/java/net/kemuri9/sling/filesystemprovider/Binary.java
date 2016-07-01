@@ -13,26 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.kemuri9.sling.filesystemprovider.impl;
+package net.kemuri9.sling.filesystemprovider;
 
 import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Representation of a Binary stream of data
+ * Representation of a Binary stream of data.
+ * It is recommended to utilize this type instead of raw {@link InputStream}s
+ * due to the one-time use behaviorisms of {@link InputStream}s.
  */
 public interface Binary {
 
     /**
-     * Retrieve the length of the binary
-     * @return length of the binary stream
+     * Retrieve the length of the binary, in bytes.
+     * @return length of the binary stream, in bytes
      */
     public long getLength();
 
     /**
-     * Retrieve the InputStream for the binary data
-     * @return stream of the binary data
-     * @throws IOException if an error on acquiring the stream occurs
+     * Retrieve a new {@link InputStream} for the binary data.
+     * The returned {@link InputStream} should be closed when its use is completed.
+     * @return {@link InputStream} to read the stored binary data
+     * @throws IOException if an error occurs on acquiring the {@link InputStream}
      */
     public InputStream getStream() throws IOException;
 }

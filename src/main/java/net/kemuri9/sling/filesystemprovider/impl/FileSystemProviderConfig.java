@@ -37,8 +37,4 @@ public @interface FileSystemProviderConfig {
     @AttributeDefinition(name = "Pretty print JSON Property storage",
             description = "State of pretty printing the JSON file that manages properties of Resources")
     boolean json_property_pretty_print() default false;
-
-    @AttributeDefinition(name = "Store JSON Binary Properties as Files",
-            description = "State of storing binary (e.g. InputStream) properties as separate files instead of within the JSON properties file")
-    boolean json_property_binaries_as_files() default true;
 }

@@ -69,7 +69,7 @@ import org.slf4j.LoggerFactory;
     }
 )
 @Designate(ocd = FileSystemProviderConfig.class)
-public class FileSystemProvider extends ResourceProvider<FileSystemProviderState> {
+public final class FileSystemProvider extends ResourceProvider<FileSystemProviderState> {
 
     /** configuration */
     private FileSystemProviderConfig config;
@@ -79,11 +79,6 @@ public class FileSystemProvider extends ResourceProvider<FileSystemProviderState
 
     @Reference
     private SlingSettingsService slingSettings;
-
-    @Reference(policy = ReferencePolicy.DYNAMIC,
-            cardinality = ReferenceCardinality.OPTIONAL,
-            policyOption = ReferencePolicyOption.GREEDY)
-    DynamicClassLoaderManager classLoaderManager;
 
     /** cached instance of the language provider */
     private FileSystemProviderQueryLanguageProvider queryProvider;
@@ -98,15 +93,27 @@ public class FileSystemProvider extends ResourceProvider<FileSystemProviderState
         log.info("Activate");
         this.config = config;
         log.debug("Sling Home: {}", slingSettings.getSlingHomePath());
+        Util.init(slingSettings, config);
     }
 
     /* Modified should not be included for allowing the Root Path to be altered
-       and take effect without restarting the system. */
+       and take effect without restarting the sling system. */
 
     @Deactivate
     protected void deactivate(ComponentContext context) {
         log.info("deactivate");
         this.config = null;
+    }
+
+    @Reference(policy = ReferencePolicy.DYNAMIC,
+            cardinality = ReferenceCardinality.OPTIONAL,
+            policyOption = ReferencePolicyOption.GREEDY)
+    protected void setClassLoaderManager(DynamicClassLoaderManager manager) {
+        Util.setDynamicClassLoaderManager(manager);
+    }
+
+    protected void unsetClassLoaderManager(DynamicClassLoaderManager manager) {
+        Util.setDynamicClassLoaderManager(null);
     }
     // OSGi Life cycle methods - End
 
@@ -190,7 +197,7 @@ public class FileSystemProvider extends ResourceProvider<FileSystemProviderState
     public Resource getResource(ResolveContext<FileSystemProviderState> ctx, String path,
             ResourceContext resourceContext, Resource parent) {
         log.trace("getResource({})", path);
-        String absPath = getAbsPath(path);
+        String absPath = Util.getAbsPath(path);
         log.trace("looking for resource data at '{}'", absPath);
         File resourceFile = new File(absPath);
         if (resourceFile.exists() && resourceFile.isDirectory()) {
@@ -253,7 +260,7 @@ public class FileSystemProvider extends ResourceProvider<FileSystemProviderState
 
     // create the repository root directory if it does not already exist
     private void createRootIfNecessary() {
-        String rootPath = getAbsPath("/");
+        String rootPath = Util.getAbsPath("/");
         File rootDir = new File(rootPath);
         if (rootDir.exists() && !rootDir.isDirectory()) {
             log.error("Root directory '{}' is not a directory!", rootDir.getAbsolutePath());
@@ -264,10 +271,6 @@ public class FileSystemProvider extends ResourceProvider<FileSystemProviderState
             return;
         }
         // add some properties
-    }
-
-    private String getAbsPath(String path) {
-        return slingSettings.getAbsolutePathWithinSlingHome(config.repository_root() + path);
     }
 
     @Override

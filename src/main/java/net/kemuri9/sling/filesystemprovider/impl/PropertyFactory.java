@@ -15,87 +15,88 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectStreamClass;
-import java.io.Serializable;
+import java.lang.reflect.Array;
 
-import org.apache.sling.commons.classloader.DynamicClassLoaderManager;
 import org.apache.sling.commons.json.JSONArray;
 import org.apache.sling.commons.json.JSONObject;
+import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import net.kemuri9.sling.filesystemprovider.Binary;
 
 /**
  * Factory class for creating properties from the JSON objects that represent them
  */
-class PropertyFactory {
-
-    static class CustomLoaderObjectInputStream extends ObjectInputStream {
-        private ClassLoader classLoader;
-
-        public CustomLoaderObjectInputStream(InputStream in, ClassLoader classLoader) throws IOException {
-            super(in);
-            this.classLoader = classLoader;
-        }
-
-        @Override
-        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
-            String name = desc.getName();
-            if (this.classLoader != null) {
-                try {
-                    return Class.forName(name, false, this.classLoader);
-                } catch (ClassNotFoundException ex) {
-                    log.error("Could not load class {} with custom loader", name, ex);
-                }
-            }
-            return Class.forName(name, false, Thread.currentThread().getContextClassLoader());
-        }
-    }
+@Component(service = {net.kemuri9.sling.filesystemprovider.PropertyFactory.class})
+final class PropertyFactory implements net.kemuri9.sling.filesystemprovider.PropertyFactory {
 
     /** slf4j logger */
     private static final Logger log = LoggerFactory.getLogger(PropertyFactory.class);
 
     /**
-     * Create a property usable in the ValueMap system
+     * Create a property value usable in the ValueMap system
+     * @param path the resource path
      * @param property JSON property to read into data
      * @return java object matching the JSON property data.
      */
-    public static Object createProperty(DynamicClassLoaderManager manager, JSONObject property) {
+    public static Object createPropertyValue(String path, JSONObject property) {
 
         String type = property.optString(FSPConstants.JSON_KEY_TYPE);
         JSONArray values = property.optJSONArray(FSPConstants.JSON_KEY_VALUES);
         Object value = property.opt(FSPConstants.JSON_KEY_VALUE);
-        boolean external = property.optBoolean(FSPConstants.JSON_KEY_EXTERNAL, false);
+        boolean isBinary = property.optBoolean(FSPConstants.JSON_KEY_BINARY, false);
 
-        ClassLoader dynamicCl = (manager == null) ? null : manager.getDynamicClassLoader();
-        ClassLoader cl = (dynamicCl == null) ? Thread.currentThread().getContextClassLoader() : dynamicCl;
-        Class<?> clazz = null;
-        try {
-            clazz = cl.loadClass(type);
-        } catch (ClassNotFoundException e) {
-            log.error("Unable to load type '{}' used as a property value", type);
+        Class<?> clazz = Util.loadClass(Util.getClassLoader(), type);
+        if (clazz == null) {
             return null;
         }
 
-        switch (type) {
-            case "java.lang.Integer":
-
-            case "java.lang.String":
-                break;
-            default:
-
-                if (!Serializable.class.isAssignableFrom(clazz)) {
-                    log.error("Type '{}' is not Serializable, can not be read", type);
-                    return null;
-                }
-
-                break;
+        if (values == null) {
+            // single value case
+            Object valToConvert = readBinary(path, value, isBinary);
+            return ValueConversion.convert(valToConvert, clazz);
+        } else {
+            // multi-value case
+            Object vals = Array.newInstance(clazz, values.length());
+            for (int valIdx = 0; valIdx < values.length(); ++valIdx) {
+                // use opt instead of get to avoid the JSONException
+                Object val = readBinary(path, values.opt(valIdx), isBinary);
+                Array.set(vals, valIdx, ValueConversion.convert(val, clazz));
+            }
+            return vals;
         }
-
-        return null;
     }
 
+    private static Object readBinary(String path, Object val, boolean isBinary) {
+        if (!isBinary) {
+            // there is no handling to perform, so return as-is
+            return val;
+        }
+        if (!(val instanceof String)) {
+            log.error("binary property did not have a string value");
+        }
 
+        String filename = (String) val;
+        File file = new File(Util.getAbsPath(path), filename);
+
+        try {
+            return new FileBinary(file);
+        } catch (IOException e) {
+            log.error("Unable to create Binary representation from {}", file.getAbsolutePath(), e);
+            return null;
+        }
+    }
+
+    @Override
+    public Binary createBinaryProperty(InputStream input) throws IOException {
+        if (input == null) {
+            throw new IOException("unable to read from null InputStream");
+        }
+
+        return new FileBinary(input);
+    }
 }

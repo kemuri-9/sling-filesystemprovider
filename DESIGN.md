@@ -28,6 +28,10 @@ Only one of ``value`` or ``values`` may be defined.
 * If ``value`` is utilized, the corresponding value is singly-valued, this also indicates that when retrieving the property, it is singly-valued and is returned in the type it is defined as.
 * If ``values`` is utilized, the corresponding value is JSON array of values for the property. It also indicates that the property will be treated as an array type on return.
 
+### Binary ###
+the ``binary`` field may be defined.
+Its existence indicates that the property is a binary representation of some sort of data.
+
 The value(s) stored will match the java type where JSON supports it (boolean, integer/long, string). otherwise the value will be converted to an appropriate storable format for persistence.
 #### Storage conversion ####
 * ``java.lang.Number`` - store numeric value as is
@@ -41,7 +45,7 @@ The value(s) stored will match the java type where JSON supports it (boolean, in
 other types are likely to not be persisted.
 
 #### Binary Storage ####
-JSON is rather ill-fit for binary storage, being a text-based format. So in addition to supporting the storage of the binary data as Base64 within the JSON file, it should also be supported to store the values in external files on the file system. A configuration option should control if binaries are stored within the JSON or in files.  
+JSON is rather ill-fit for binary storage, being a text-based format. Also with the unknown length/size of binary files, memory inflation can occur for larger binary files if they are stored in JSON. Instead binary contents should be stored external of the JSON.
 
 ### Special Keys ####
 The following are special property names and can not be used for other purposes
@@ -74,12 +78,13 @@ The following are special property names and can not be used for other purposes
   },
   "binaryData" : {
     "type": "java.io.InputStream",
-    "value": "rO0ABXNyABtqYXZhLnV0aWwuR3JlZ29yaWFuQ2F..."
+    "value": "_sling_fsp_binaryData_1465296780858.bin",
+    "binary": true
   },
   "externalPrivateKey" : {
     "type": "java.security.PrivateKey",
-    "value": "_sling_fsp_externalPrivateKey_1465296780859",
-	"external": true
+    "value": "_sling_fsp_externalPrivateKey_1465296780859.bin",
+    "binary": true
   }
 }
 ```

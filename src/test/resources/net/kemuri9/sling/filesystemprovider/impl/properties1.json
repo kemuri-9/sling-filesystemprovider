@@ -12,20 +12,16 @@
     "values": [3.14, 1.73]
   },
   "calendarValue" : {
-    "type": "java.util.Calendar",
-    "value": "2016-06-07T19:40:20.618+0900"
+    "type": "java.util.GregorianCalendar",
+    "value": "2016-06-07T19:40:20.618+09:00"
   },
   "zonedDateTimes" : {
     "type": "java.time.ZonedDateTime",
-    "values": ["2016-06-07T19:40:20.618+0900", "2016-06-07T19:40:20.618+0900"]
-  },
-  "binaryData" : {
-    "type": "java.io.InputStream",
-    "value": "rO0ABXNyABtqYXZhLnV0aWwuR3JlZ29yaWFuQ2F..."
+    "values": ["2016-06-07T19:40:20.618+09:00", "2016-06-07T19:40:20.618+09:00"]
   },
   "externalHashMap" : {
     "type": "java.util.concurrent.ConcurrentHashMap",
     "value": "_sling_fsp_externalHashMap_1465296780859.bin",
-	"external": true
+	"binary": true
   }
 }
