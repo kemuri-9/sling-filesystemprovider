@@ -15,7 +15,10 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
@@ -103,6 +106,7 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
     protected void deactivate(ComponentContext context) {
         log.info("deactivate");
         this.config = null;
+        Util.destroy();
     }
 
     @Reference(policy = ReferencePolicy.DYNAMIC,
@@ -199,8 +203,8 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
         log.trace("getResource({})", path);
         String absPath = Util.getAbsPath(path);
         log.trace("looking for resource data at '{}'", absPath);
-        File resourceFile = new File(absPath);
-        if (resourceFile.exists() && resourceFile.isDirectory()) {
+        Path resourceFile = Paths.get(absPath);
+        if (Files.exists(resourceFile) && Files.isDirectory(resourceFile)) {
             // found a hit for it, return it
             return new FileSystemProviderResource(parent, this, ctx, resourceContext, resourceFile, path);
         }
@@ -261,13 +265,17 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
     // create the repository root directory if it does not already exist
     private void createRootIfNecessary() {
         String rootPath = Util.getAbsPath("/");
-        File rootDir = new File(rootPath);
-        if (rootDir.exists() && !rootDir.isDirectory()) {
-            log.error("Root directory '{}' is not a directory!", rootDir.getAbsolutePath());
+        Path rootDir = Paths.get(rootPath);
+        if (Files.exists(rootDir) && !Files.isDirectory(rootDir)) {
+            log.error("Root directory '{}' is not a directory!", rootDir);
             return;
         }
-        if (!rootDir.exists() && !rootDir.mkdirs()) {
-            log.error("Unable to create root directory '{}'", rootDir.getAbsolutePath());
+        if (!Files.exists(rootDir)) {
+            try {
+                Files.createDirectories(rootDir);
+            } catch (IOException e) {
+                log.error("Unable to create root directory '{}'", rootDir);
+            }
             return;
         }
         // add some properties

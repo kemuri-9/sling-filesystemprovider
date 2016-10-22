@@ -20,10 +20,10 @@ import java.lang.annotation.Annotation
 class TestUtil {
 
     static FileSystemProviderConfig newConfig() {
-        return newConfig('.', ['/'] as String[], JSONCompression.NONE, false)
+        return newConfig('.', '/', JSONCompression.NONE, false)
     }
 
-    static FileSystemProviderConfig newConfig(final String rootPath, final String[] providerRoots,
+    static FileSystemProviderConfig newConfig(final String rootPath, final String providerRoot,
             final JSONCompression jsonCompression, final boolean jsonPrettyPrint) {
         new FileSystemProviderConfig() {
 
@@ -33,8 +33,8 @@ class TestUtil {
             }
 
             @Override
-            public String[] provider_root() {
-                return providerRoots
+            public String provider_root() {
+                return providerRoot
             }
 
             @Override

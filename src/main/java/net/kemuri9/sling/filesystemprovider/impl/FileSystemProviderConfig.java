@@ -22,9 +22,9 @@ import org.osgi.service.metatype.annotations.ObjectClassDefinition;
         description = "The configuration for the File System ResourceProvider")
 public @interface FileSystemProviderConfig {
 
-    @AttributeDefinition(name = "Root paths",
-            description = "Root paths that this provider is mounted at to start providing for")
-    String[] provider_root() default {"/"};
+    @AttributeDefinition(name = "Root path",
+            description = "Root path that this provider is mounted at to start providing for")
+    String provider_root() default "/";
 
     @AttributeDefinition(name = "File Repository Root",
             description = "Root path under the sling home directory that stores the contents of the file repository")

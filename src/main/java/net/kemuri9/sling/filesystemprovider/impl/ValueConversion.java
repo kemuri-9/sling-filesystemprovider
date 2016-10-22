@@ -17,6 +17,7 @@ package net.kemuri9.sling.filesystemprovider.impl;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
@@ -36,6 +37,7 @@ import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
 
+import org.apache.sling.commons.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +53,22 @@ final class ValueConversion {
 
     /** slf4j logger */
     private static final Logger log = LoggerFactory.getLogger(ValueConversion.class);
+
+    static class JSONStorage {
+        /** the value to store in the JSON */
+        public final Object value;
+        /** the state of the value being a binary data value. */
+        public final boolean isBinary;
+
+        public JSONStorage(Object value) {
+            this(value, false);
+        }
+
+        public JSONStorage(Object value, boolean isBinary) {
+            this.value = value;
+            this.isBinary = isBinary;
+        }
+    }
 
     /**
      * Conversion on values that should be always converted to something else when a type is not specified.
@@ -77,6 +95,7 @@ final class ValueConversion {
 
     /**
      * Convert the provided value into a new target type
+     * @param <T> the type of the class
      * @param val the value to convert
      * @param clazz the clazz type to convert into
      * @return the converted value, or {@code} null if it could not be converted
@@ -171,8 +190,23 @@ final class ValueConversion {
             }
         }
         // serialize case
-        if (val instanceof Serializable && InputStream.class.isAssignableFrom(clazz)) {
-            // TODO
+        if (val instanceof Serializable && (InputStream.class.isAssignableFrom(clazz) || Binary.class.isAssignableFrom(clazz))) {
+            log.trace("Attempting serialization on {}", val);
+            try {
+                @SuppressWarnings("resource")
+                FileBinary temporary = new FileBinary();
+                ObjectOutputStream output = new ObjectOutputStream(temporary.getOutputStream());
+                output.writeObject(val);
+                output.close();
+                // if the caller really wants InputStream, then do what we can to clean up the leak.
+                if (InputStream.class.isAssignableFrom(clazz)) {
+                    temporary.setDeleteOnFinalize(true);
+                    return (T) temporary.getStream();
+                }
+            } catch (IOException e) {
+                log.error("Error serializing class data", e);
+                return null;
+            }
         }
         log.warn("Unable to convert {} into {}", val, clazz.getName());
         return null;
@@ -181,7 +215,8 @@ final class ValueConversion {
     /**
      * Convert the specified value into an array of the specified element type.
      * Note that the return type is {@code Object} and not {@code T[]} due
-     * to {@code T[]} assuming the {@code Object[]} form and therefore
+     * to {@code T[]} assuming the {@code Object[]} form and therefore causing some casting issues.
+     * @param <T> the type of the class
      * @param val the value(s) to convert
      * @param elemType the element type of the array to convert into
      * @return the converted array.
@@ -238,6 +273,13 @@ final class ValueConversion {
         return array;
     }
 
+    /**
+     * Convert the provided value into a {@link Calendar} or derived type.
+     * @param <T> the type of the class
+     * @param val the value to convert
+     * @param clazz the specific {@link Calendar} type to convert into
+     * @return the value converted into the specified type, or {@code null} if not possible.
+     */
     private static <T> T convertToCalendar(Object val, Class<T> clazz) {
         if (val instanceof String) {
             val = JT_FULL_ISO_8601.parse((String) val, ZonedDateTime::from);
@@ -260,6 +302,13 @@ final class ValueConversion {
         return null;
     }
 
+    /**
+     * Convert the provided value into a {@link Date} or derived type.
+     * @param <T> the type of the class
+     * @param val the value to convert
+     * @param clazz the specific {@link Date} type to convert into.
+     * @return the value converted into the specified type, or {@code null} if not possible.
+     */
     private static <T> T convertToDate(Object val, Class<T> clazz) {
         if (java.sql.Timestamp.class.equals(clazz)) {
             if (val instanceof String) {
@@ -308,6 +357,13 @@ final class ValueConversion {
         return null;
     }
 
+    /**
+     * Convert the provided value into a {@link Number} or derived type.
+     * @param <T> the type of the class
+     * @param val the value to convert
+     * @param clazz the specific {@link Date} type to convert into.
+     * @return the value converted into the specified type, or {@code null} if not possible.
+     */
     private static <T> T convertToNumber(Object val, Class<T> clazz) {
         Number numVal = (Number) val;
         if (BigDecimal.class.equals(clazz)) {
@@ -357,5 +413,45 @@ final class ValueConversion {
             }
         }
         return null;
+    }
+
+    /**
+     * Returns an Object of how to store the object in JSON.
+     * @param val the value to store in JSON.
+     * @return a {@link JSONStorage} object for the types that require the extra meta information, otherwise the value to store.
+     */
+    static Object convertToJSONStorage(Object val) {
+        // nulls to convert to the JSON variation
+        if (val == null) {
+            return JSONObject.NULL;
+        }
+        // numbers are as-is
+        if (val instanceof Number) {
+            return val;
+        }
+        // strings are as-is
+        if (val instanceof String) {
+            return val;
+        }
+        // binaries are stored as their name values with the binary flag.
+        if (val instanceof Binary) {
+            return new JSONStorage(((Binary) val).getName(), true);
+        }
+        // the old dates are stored as their milliseconds
+        if (val instanceof java.util.Date) {
+            return ((java.util.Date) val).getTime();
+        }
+        if (val instanceof java.util.Calendar) {
+            return convertToString(val);
+        }
+        if (val instanceof TemporalAccessor) {
+            return convertToString(val);
+        }
+        if (val instanceof Serializable) {
+            log.warn("serializing {} for storage", val);
+            return convertToJSONStorage(convert(val, Binary.class));
+        }
+        // TODO
+        return val.toString();
     }
 }

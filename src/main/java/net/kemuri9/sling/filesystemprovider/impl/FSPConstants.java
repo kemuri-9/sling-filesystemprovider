@@ -15,6 +15,8 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import org.apache.sling.api.resource.ResourceResolver;
+
 /**
  * Constants for internal use of the implementation
  */
@@ -22,6 +24,9 @@ final class FSPConstants {
 
     /** Filename extension indicating binary content */
     public static final String FILENAME_EXTENSION_BINARY = ".bin";
+
+    /** Filename fragment indicating the file is temporary */
+    public static final String FILENAME_FRAGMENT_TEMPORARY = "__T_E_M_P__";
 
     /** Filename fragment indicating the properties of a resource */
     public static final String FILENAME_FRAGMENT_PROPERTIES_FILE = "properties";
@@ -51,5 +56,8 @@ final class FSPConstants {
     public static final String PROPERTY_RESOURCE_SUPER_TYPE = "sling:resourceSuperType";
 
     /** Property name indicating the resource's type */
-    public static final String PROPERTY_RESOURCE_TYPE = "sling:resourceType";
+    public static final String PROPERTY_RESOURCE_TYPE = ResourceResolver.PROPERTY_RESOURCE_TYPE;
+
+    /** String for indicating a path separate within the resource tree  */
+    public static final String RESOURCE_PATH_SEPARATOR = "/";
 }

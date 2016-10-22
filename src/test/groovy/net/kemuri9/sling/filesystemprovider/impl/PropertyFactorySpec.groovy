@@ -56,6 +56,10 @@ class PropertyFactorySpec extends Specification {
         Util.init(slingSettings, config)
     }
 
+    def cleanupSpec() {
+        Util.destroy()
+    }
+
     def 'test float values'() {
         when:
         JSONObject prop = new JSONObject([(FSPConstants.JSON_KEY_TYPE): float.name,

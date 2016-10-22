@@ -20,10 +20,10 @@ import java.io.InputStream;
 
 /**
  * Representation of a Binary stream of data.
- * It is recommended to utilize this type instead of raw {@link InputStream}s
+ * It is <strong>recommended</strong> to utilize this type instead of instances of {@link InputStream},
  * due to the one-time use behaviorisms of {@link InputStream}s.
  */
-public interface Binary {
+public interface Binary extends AutoCloseable {
 
     /**
      * Retrieve the length of the binary, in bytes.
@@ -32,10 +32,22 @@ public interface Binary {
     public long getLength();
 
     /**
+     * Retrieve the name of the binary.
+     * @return name of the binary
+     */
+    public String getName();
+
+    /**
      * Retrieve a new {@link InputStream} for the binary data.
      * The returned {@link InputStream} should be closed when its use is completed.
      * @return {@link InputStream} to read the stored binary data
      * @throws IOException if an error occurs on acquiring the {@link InputStream}
      */
     public InputStream getStream() throws IOException;
+
+    /**
+     * Release resources utilized by this {@code Binary} object, allowing them to be reclaimed by the system.
+     * Any application should call this method when it is finished with the {@code Binary} object.
+     */
+    public void dispose();
 }

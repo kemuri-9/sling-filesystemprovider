@@ -15,11 +15,15 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.kemuri9.sling.filesystemprovider.Binary;
 
@@ -28,26 +32,43 @@ import net.kemuri9.sling.filesystemprovider.Binary;
  */
 final class FileBinary implements Binary {
 
+    /** slf4j logger */
+    private static Logger log = LoggerFactory.getLogger(FileBinary.class);
+
     /** File representing the binary */
-    private File file;
+    private Path file;
 
     /** state of the file being temporary */
     private boolean isTemporary;
 
+    /** This flag to be deleted when finalization is called */
+    private boolean deleteOnFinalize;
+
+    /**
+     * Create a new temporary file for storage that is yet to be written in.
+     * @throws IOException when an IO Error occurs trying to create the temporary file.
+     */
+    FileBinary() throws IOException {
+        file = Files.createTempFile(Util.getTemporaryDirectory(), FSPConstants.FILENAME_PREFIX_FSP, FSPConstants.FILENAME_EXTENSION_BINARY);
+        isTemporary = true;
+        deleteOnFinalize = false;
+    }
+
     /**
      * Create a representation of a pre-existing file on disk
      * @param file the pre-existing file on disk to represent as a binary
-     * @throws IOException When the provided {@link File} does not exist or is not a file.
+     * @throws IOException When the provided {@link Path} does not exist or is not a file.
      */
-    FileBinary(File file) throws IOException {
-        if (!file.exists()) {
+    FileBinary(Path file) throws IOException {
+        if (!Files.exists(file)) {
             throw new IOException("Unable to create File binary from non-existing file");
         }
-        if (!file.isFile()) {
+        if (!Files.isRegularFile(file)) {
             throw new IOException("Unable to create File binary from non file");
         }
         this.file = file;
-        isTemporary = false;
+        isTemporary = file.getFileName().toString().contains(FSPConstants.FILENAME_FRAGMENT_TEMPORARY);
+        deleteOnFinalize = false;
     }
 
     /**
@@ -56,11 +77,43 @@ final class FileBinary implements Binary {
      * @throws IOException When an IO Error occurs trying to read the input stream or write the data to the temporary storage
      */
     FileBinary(InputStream input) throws IOException {
-        file = File.createTempFile(FSPConstants.FILENAME_PREFIX_FSP, "temporary-stream.bin");
-        FileOutputStream fileOutput = new FileOutputStream(file);
-        Util.copy(input, fileOutput);
+        file = Files.createTempFile(Util.getTemporaryDirectory(), FSPConstants.FILENAME_PREFIX_FSP, FSPConstants.FILENAME_EXTENSION_BINARY);
+        try (OutputStream fileOutput = Files.newOutputStream(file)) {
+            Util.copy(input, fileOutput);
+        }
         input.close();
         isTemporary = true;
+        deleteOnFinalize = false;
+    }
+
+    @Override
+    public void close() {
+        dispose();
+    }
+
+    @Override
+    public void dispose() {
+        // if the file is temporary then try to delete it from disk
+        if (isTemporary && Files.exists(file)) {
+            boolean deleted = false;
+            try {
+                deleted = Files.deleteIfExists(file);
+            } catch (IOException e) {
+                log.error("error occurred deleting {}", file, e);
+            }
+            if (!deleted) {
+                log.error("unable to delete {}, trying again on JVM shutdown", file);
+                // and if it can't be deleted now, then try again later
+                file.toFile().deleteOnExit();
+            }
+        }
+    }
+
+    @Override
+    public void finalize() {
+        if (deleteOnFinalize) {
+            dispose();
+        }
     }
 
     @Override
@@ -75,26 +128,45 @@ final class FileBinary implements Binary {
 
     @Override
     public long getLength() {
-        return file.length();
+        try {
+            return Files.size(file);
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    @Override
+    public String getName() {
+        return file.getFileName().toString();
+    }
+
+    /**
+     * Retrieve an {@link OutputStream} for writing into the binary content. this should be used
+     * <strong>VERY CAREFULLY</strong> as it will overwrite the existing data.
+     * @return OutputStream for writing to the file
+     * @throws IOException
+     */
+    public OutputStream getOutputStream() throws IOException {
+        return Files.newOutputStream(file, StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE);
     }
 
     @Override
     public InputStream getStream() throws IOException {
-        return new FileInputStream(file);
-    }
-
-    @Override
-    public void finalize() {
-        // if the file is temporary then try to delete it from disk
-        if (isTemporary && !file.delete()) {
-            // and if it can't be deleted now, then try again later
-            file.deleteOnExit();
-        }
+        return Files.newInputStream(file);
     }
 
     @Override
     public int hashCode() {
         return file.hashCode();
+    }
+
+    /**
+     * Retrieve the state of this FileBinary deleting its content when finalized.
+     * @return state of the content being deleted on finalization.
+     */
+    public boolean isDeleteOnFinalize() {
+        return deleteOnFinalize;
     }
 
     /**
@@ -105,9 +177,34 @@ final class FileBinary implements Binary {
         return isTemporary;
     }
 
+    /**
+     * Move this file binary to a new location
+     * @param newLocation the new location of the binary
+     * @throws IOException if the move operation fails.
+     */
+    public void move(Path newLocation) throws IOException {
+        Files.move(file, newLocation);
+    }
+
+    /**
+     * Set the state of this FileBinary representing temporary binary storage.
+     * @param isTemporary newState of being temporary
+     */
+    public void setTemporary(boolean isTemporary) {
+        this.isTemporary = isTemporary;
+    }
+
+    /**
+     * Set the state of this FileBinary needing to be deleted on finalization.
+     * @param deleteOnFinalize new state of needing deletion on finalization.
+     */
+    public void setDeleteOnFinalize(boolean deleteOnFinalize) {
+        this.deleteOnFinalize = deleteOnFinalize;
+    }
+
     @Override
     public String toString() {
         return new StringBuilder().append(getClass().getName())
-                .append(" path=").append(file.getAbsolutePath()).toString();
+                .append(" path=").append(file.toAbsolutePath()).toString();
     }
 }

@@ -15,7 +15,10 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import java.util.TreeMap;
+
 import org.apache.sling.api.resource.PersistenceException;
+import org.apache.sling.commons.json.JSONObject;
 
 /**
  * State management of the file system provider.
@@ -26,25 +29,35 @@ final class FileSystemProviderState implements AutoCloseable {
     /** state of the "session" being live */
     public boolean isLive;
 
+    /** the point in time the 'state' is in. in milliseconds */
+    public long stateTime;
+
     /** username that the system is authenticated with */
     public String username;
+
+    /** map of resource paths to their current (modified) properties */
+    public TreeMap<String, JSONObject> modifiedProperties;
 
     public FileSystemProviderState() {
         this.isLive = true;
         // default to anonymous
         username = "anonymous";
+        stateTime = System.currentTimeMillis();
+        modifiedProperties = new TreeMap<>();
     }
 
     @Override
     public void close() {
         isLive = false;
+        modifiedProperties.clear();
     }
 
     public void revert() throws PersistenceException {
-
+        modifiedProperties.clear();
     }
 
     public void commit() throws PersistenceException {
-
+        // TODO
+        throw new UnsupportedOperationException("not yet");
     }
 }

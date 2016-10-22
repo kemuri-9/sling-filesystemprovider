@@ -15,13 +15,14 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
-import java.io.File;
-import java.io.FileFilter;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Iterator;
 
 import org.apache.sling.api.resource.AbstractResource;
 import org.apache.sling.api.resource.ModifiableValueMap;
@@ -45,10 +46,10 @@ final class FileSystemProviderResource extends AbstractResource {
     private static Logger log = LoggerFactory.getLogger(FileSystemProviderResource.class);
 
     /** file filter to find the properties file in the resource directory */
-    private static FileFilter FILEFILTER_PROPERTIES = new FileFilter() {
+    private static DirectoryStream.Filter<Path> DIR_STREAM_FILTER_PROPERTIES = new DirectoryStream.Filter<Path>() {
         @Override
-        public boolean accept(File pathname) {
-            String name = pathname.getName();
+        public boolean accept(Path pathname) throws IOException {
+            String name = pathname.getFileName().toString();
             if (!name.startsWith(FSPConstants.FILENAME_PREFIX_FSP + FSPConstants.FILENAME_FRAGMENT_PROPERTIES_FILE)) {
                 return false;
             }
@@ -59,8 +60,8 @@ final class FileSystemProviderResource extends AbstractResource {
     };
 
     /** retrieve the compression format from the specified file */
-    static JSONCompression compressionFromFile(File file) {
-        String fileName = file.getName();
+    static JSONCompression compressionFromFile(Path file) {
+        String fileName = file.getFileName().toString();
         for (JSONCompression compression : JSONCompression.values()) {
             if (fileName.endsWith(compression.extension)) {
                 return compression;
@@ -80,21 +81,23 @@ final class FileSystemProviderResource extends AbstractResource {
     private ResolveContext<FileSystemProviderState> context;
 
     /** the file on disk that this is providing */
-    private File file;
+    private Path file;
 
     /** the resource path being represented */
     private String path;
 
+    /** additional metadata held by the resource */
     private ResourceMetadata metadata;
 
+    /** properties for the resource */
     private JSONObject properties;
 
     FileSystemProviderResource(Resource parent, FileSystemProvider provider, ResolveContext<FileSystemProviderState> resolveCtx,
-            ResourceContext rsrcCtx, File file, String path) {
-        if (!file.exists()) {
+            ResourceContext rsrcCtx, Path file, String path) {
+        if (!Files.exists(file)) {
             throw new IllegalArgumentException("Resources can only be made from existing files");
         }
-        if (!file.isDirectory()) {
+        if (!Files.isDirectory(file)) {
             throw new IllegalArgumentException("Resources can only be made from folders");
         }
         this.parent = parent;
@@ -114,29 +117,46 @@ final class FileSystemProviderResource extends AbstractResource {
         return (parent == null) ? super.getParent() : parent;
     }
 
-    private File getPropertyFile() {
-        File[] files = file.listFiles(FILEFILTER_PROPERTIES);
-        return (files != null && files.length == 1) ? files[0] : null;
+    private Path getPropertyFile() {
+        try {
+            Iterator<Path> files = Files.newDirectoryStream(file, DIR_STREAM_FILTER_PROPERTIES).iterator();
+            return (files.hasNext()) ? files.next() : null;
+        } catch (IOException e) {
+            log.error("unable to find properties file");
+        }
+        return null;
     }
 
-    private JSONObject getProperties() {
+    /**
+     * Retrieve the properties for this resource. These should be considered <strong>READ ONLY</strong>
+     * @return the properties for the resource.
+     */
+    JSONObject getProperties() {
         if (properties != null) {
             return properties;
         }
-        File propFile = getPropertyFile();
+
+        // if the current state has (modified) properties for this resource, use those instead of the persisted ones.
+        JSONObject props = context.getProviderState().modifiedProperties.get(path);
+        if (props != null) {
+            properties = props;
+            return props;
+        }
+
+        Path propFile = getPropertyFile();
         if (propFile != null) {
             // otherwise try and read the file accordingly
             JSONCompression compression = compressionFromFile(propFile);
             try (InputStreamReader reader = new InputStreamReader(
-                    compression.wrapInput(new FileInputStream(propFile)), StandardCharsets.UTF_8)) {
+                    compression.wrapInput(Files.newInputStream(propFile)), StandardCharsets.UTF_8)) {
                 String content = Util.slurp(reader);
                 properties = new JSONObject(content);
             } catch (FileNotFoundException e) {
-                log.error("Property file '{}' disappeared", propFile.getAbsolutePath());
+                log.error("Property file '{}' disappeared", propFile);
             } catch (IOException e) {
-                log.error("Error occurred while reading property file '{}'", propFile.getAbsolutePath(), e);
+                log.error("Error occurred while reading property file '{}'", propFile, e);
             } catch (JSONException e) {
-                log.error("Unable to parse JSON property content in file '{}'", propFile.getAbsoluteFile(), e);
+                log.error("Unable to parse JSON property content in file '{}'", propFile, e);
             }
         }
 
@@ -149,15 +169,40 @@ final class FileSystemProviderResource extends AbstractResource {
 
     @Override
     public ValueMap getValueMap() {
-        return new FileSystemProviderValueMap(getPath(), getProperties());
+        return new FileSystemProviderValueMap(this);
+    }
+
+    /**
+     * Add/Update the specified property on the resource
+     * @param propertyName the name of the property that is added/updated
+     * @param newProp the data for the new property
+     * @throws JSONException if an error occurs adding the new property
+     */
+    void addProperty(String propertyName, JSONObject newProp) throws JSONException {
+        JSONObject properties = getProperties();
+        properties.put(propertyName, newProp);
+        // flag within the state that this resource has modified properties
+        context.getProviderState().modifiedProperties.put(path, properties);
+    }
+
+    /**
+     * Remove the specified property from the resource
+     * @param propertyName the name of the property to remove.
+     * @return the value that was removed.
+     */
+    Object removeProperty(String propertyName) {
+        properties = getProperties();
+        Object removed = properties.remove(propertyName);
+        // flag within the state that this resource has modified properties
+        context.getProviderState().modifiedProperties.put(path, properties);
+        return removed;
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <AdapterType> AdapterType adaptTo(Class<AdapterType> type) {
         if (type == ModifiableValueMap.class) {
-            // TODO
-            return null;
+            return (AdapterType) new FileSystemProviderModifiableValueMap(this);
         }
         if (type == ValueMap.class) {
             return (AdapterType) getValueMap();
