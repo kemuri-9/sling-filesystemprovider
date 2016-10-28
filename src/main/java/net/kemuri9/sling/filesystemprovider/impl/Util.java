@@ -15,6 +15,7 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,6 +29,7 @@ import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Comparator;
 import java.util.HashMap;
 
 import org.apache.sling.commons.classloader.DynamicClassLoaderManager;
@@ -40,14 +42,53 @@ import net.kemuri9.sling.filesystemprovider.Binary;
 /**
  * Utilities shared a bit between the individual classes. and lacking a better class name.
  */
-class Util {
-
-
+final class Util {
 
     /**
-     * ObjectInputStream that utilizes the specific class loader
+     * {@link FileVisitor} that deletes everything it sees, including where it starts navigating from
      */
-    public static class SpecificClassLoadingObjectInputStream extends ObjectInputStream {
+    static final class DeletingFileVisitor implements FileVisitor<Path> {
+
+        /** state of logging what was deleting */
+        private boolean logVisitations;
+
+        DeletingFileVisitor(boolean logVisits) {
+            logVisitations = logVisits;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            if (logVisitations) {
+                log.warn("found left over file {}", file);
+            }
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            if (logVisitations) {
+                log.debug("deleting directory {}", dir);
+            }
+            Files.delete(dir);
+            return FileVisitResult.CONTINUE;
+        }
+    }
+
+    /**
+     * {@link ObjectInputStream} that utilizes the specific class loader.
+     */
+    static final class SpecificClassLoadingObjectInputStream extends ObjectInputStream {
 
         private ClassLoader classLoader;
 
@@ -85,39 +126,45 @@ class Util {
         }
     }
 
+    /**
+     * {@link OutputStream} meant for piping directly to an {@link InputStream} in memory,
+     * trying to minimize memory copies.
+     */
+    static final class CopyStream extends ByteArrayOutputStream {
+        /**
+         * Create a new CopyStream with the provided initial byte size
+         * @param size
+         */
+        public CopyStream(int size) {
+            super(size);
+        }
+
+        /**
+         * Retrieve an {@link InputStream} from data currently in this stream.
+         * @return {@link InputStream} of data currently in this stream
+         */
+        public InputStream toInputStream() {
+            return new ByteArrayInputStream(this.buf, 0, this.count);
+        }
+    }
+
     /** Sling ClassLoader Manager for accessing classes within the Sling environment. */
     private static volatile DynamicClassLoaderManager classLoaderManager = null;
+
+    /** Comparator for comparing the Class type */
+    static final Comparator<Class<?>> COMPARATOR_CLASS = new Comparator<Class<?>>() {
+
+        @Override
+        public int compare(Class<?> o1, Class<?> o2) {
+            return o1.getName().compareTo(o2.getName());
+        }
+    };
 
     /** configuration */
     private static FileSystemProviderConfig config;
 
     /** File walker that deletes what it comes across */
-    private static FileVisitor<Path> FILE_VISITOR_DELETING = new FileVisitor<Path>(){
-
-        @Override
-        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-            log.warn("found left over file {}", file);
-            Files.delete(file);
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-            log.debug("deleting directory {}", dir);
-            Files.delete(dir);
-            return FileVisitResult.CONTINUE;
-        }
-    };
+    private static FileVisitor<Path> FILE_VISITOR_DELETING = new DeletingFileVisitor(true);
 
     /** slf4j logger */
     private static Logger log = LoggerFactory.getLogger(Util.class);

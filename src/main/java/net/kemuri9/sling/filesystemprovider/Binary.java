@@ -22,6 +22,7 @@ import java.io.InputStream;
  * Representation of a Binary stream of data.
  * It is <strong>recommended</strong> to utilize this type instead of instances of {@link InputStream},
  * due to the one-time use behaviorisms of {@link InputStream}s.
+ * This interface should not be implemented outside of this bundle.
  */
 public interface Binary extends AutoCloseable {
 

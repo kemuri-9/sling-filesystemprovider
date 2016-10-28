@@ -15,16 +15,24 @@
  */
 package net.kemuri9.sling.filesystemprovider.impl;
 
+import java.util.Map;
 import java.util.TreeMap;
 
 import org.apache.sling.api.resource.PersistenceException;
-import org.apache.sling.commons.json.JSONObject;
 
 /**
  * State management of the file system provider.
  * Holds transient changes and other state related information
  */
 final class FileSystemProviderState implements AutoCloseable {
+
+    /**
+     * Retrieve a time usable for tracking modifications.
+     * @return time in milliseconds
+     */
+    private static long getTime() {
+        return System.currentTimeMillis();
+    }
 
     /** state of the "session" being live */
     public boolean isLive;
@@ -36,13 +44,13 @@ final class FileSystemProviderState implements AutoCloseable {
     public String username;
 
     /** map of resource paths to their current (modified) properties */
-    public TreeMap<String, JSONObject> modifiedProperties;
+    public TreeMap<String, Map<String, Object>> modifiedProperties;
 
     public FileSystemProviderState() {
         this.isLive = true;
         // default to anonymous
         username = "anonymous";
-        stateTime = System.currentTimeMillis();
+        stateTime = getTime();
         modifiedProperties = new TreeMap<>();
     }
 
@@ -52,11 +60,33 @@ final class FileSystemProviderState implements AutoCloseable {
         modifiedProperties.clear();
     }
 
-    public void revert() throws PersistenceException {
+    /**
+     * Refresh the current session to newer updated data in the system
+     */
+    void refresh() {
+        stateTime = getTime();
+    }
+
+    /**
+     * Retrieve the state of the current provider state being modified.
+     * @return state of the provider being modified.
+     */
+    boolean isModified() {
+        return !modifiedProperties.isEmpty();
+    }
+
+    /**
+     * Revert changes to the current provider state
+     */
+    void revert() {
         modifiedProperties.clear();
     }
 
-    public void commit() throws PersistenceException {
+    /**
+     * commit the pending changes to the file system
+     * @throws PersistenceException
+     */
+    void commit() throws PersistenceException {
         // TODO
         throw new UnsupportedOperationException("not yet");
     }

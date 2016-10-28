@@ -17,18 +17,14 @@ package net.kemuri9.sling.filesystemprovider.impl;
 
 import java.util.AbstractMap;
 import java.util.Collection;
-import java.util.Objects;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.Stream.Builder;
 
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ValueMap;
-import org.apache.sling.commons.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * ValueMap functionality shared by both Immutable and Modifiable variants.
@@ -44,12 +40,8 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
 
     @Override
     public void clear() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("clear");
+        throw new UnsupportedOperationException("clear is not supported");
     }
-
-    /** slf4j logger */
-    private static Logger log = LoggerFactory.getLogger(FileSystemProviderAbstractPropertyMap.class);
 
     @Override
     public boolean containsKey(Object key) {
@@ -57,10 +49,10 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
 
         // handle deep get clause
         if (sKey.contains(FSPConstants.RESOURCE_PATH_SEPARATOR)) {
-            return handleDeep(sKey, (ValueMap map, String propName) -> { return map.containsKey(propName); });
+            return handleDeep(sKey, ValueMap::containsKey);
         }
         // otherwise direct get
-        return resource.getProperties().has(sKey);
+        return resource.getProperties().containsKey(sKey);
     }
 
     @Override
@@ -69,7 +61,7 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
 
         // handle deep get clause
         if (sKey.contains(FSPConstants.RESOURCE_PATH_SEPARATOR)) {
-            return handleDeep(sKey, (ValueMap map, String propName) -> { return map.get(propName); });
+            return handleDeep(sKey, ValueMap::get);
         }
         // otherwise direct get
         return getInternal(sKey);
@@ -81,12 +73,7 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
      * @return the property value, or {@code null} if the value does not exist
      */
     protected Object getInternal(String key) {
-        JSONObject property = resource.getProperties().optJSONObject(key);
-        if (property == null) {
-            log.trace("key {} did not represent JSON object, ignoring", key);
-            return null;
-        }
-        return PropertyFactory.createPropertyValue(resource.getPath(), property);
+        return resource.getProperties().get(key);
     }
 
     @Override
@@ -106,16 +93,17 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
 
     @Override
     public boolean containsValue(final Object value) {
-        return getJSONKeyStream().map(this::getInternal)
-            .filter((Object val) -> { return Objects.equals(value, val); })
-            .findFirst().isPresent();
+        return resource.getProperties().containsValue(value);
     }
 
     @Override
-    public Set<java.util.Map.Entry<String, Object>> entrySet() {
-        return getJSONKeyStream()
-            .map((String key) -> { return new AbstractMap.SimpleImmutableEntry<>(key, getInternal(key)); } )
+    public Set<Map.Entry<String, Object>> entrySet() {
+        /* per ValueMap immutability, make the entry set read only in all possible ways.
+         * it's also specified that ModifiableValueMaps should not be modified this way. */
+        Set<Map.Entry<String, Object>> entries = resource.getProperties().entrySet().stream()
+            .map((Map.Entry<String, Object> entry) -> { return new AbstractMap.SimpleImmutableEntry<>(entry.getKey(), entry.getValue()); } )
             .collect(Collectors.toSet());
+        return Collections.unmodifiableSet(entries);
     }
 
     /**
@@ -163,32 +151,21 @@ abstract class FileSystemProviderAbstractPropertyMap implements ValueMap {
 
     @Override
     public boolean isEmpty() {
-        return !resource.getProperties().keys().hasNext();
+        return resource.getProperties().isEmpty();
     }
 
     @Override
     public Set<String> keySet() {
-        return getJSONKeyStream().collect(Collectors.toSet());
+        return Collections.unmodifiableSet(resource.getProperties().keySet());
     }
 
     @Override
     public int size() {
-        return (int) getJSONKeyStream().count();
+        return resource.getProperties().size();
     }
 
     @Override
     public Collection<Object> values() {
-        return getJSONKeyStream().map(this::getInternal).collect(Collectors.toList());
-    }
-
-    /**
-     * Generate a {@link Stream} of the {@link String}s representing property names
-     * @return Stream of property names
-     */
-    private Stream<String> getJSONKeyStream() {
-        Builder<String> builder = Stream.builder();
-        final JSONObject props = resource.getProperties();
-        props.keys().forEachRemaining(builder);
-        return builder.build();
+        return Collections.unmodifiableCollection(resource.getProperties().values());
     }
 }

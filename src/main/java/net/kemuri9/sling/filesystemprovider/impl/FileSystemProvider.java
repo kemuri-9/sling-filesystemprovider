@@ -215,7 +215,7 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
 
     @Override
     public boolean hasChanges(ResolveContext<FileSystemProviderState> ctx) {
-        return false;
+        return ctx.getProviderState().isModified();
     }
 
     @Override
@@ -246,11 +246,14 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
     @Override
     public void refresh(ResolveContext<FileSystemProviderState> ctx) {
         log.debug("refresh");
+        ctx.getProviderState().refresh();
+
     }
 
     @Override
     public void revert(ResolveContext<FileSystemProviderState> ctx) {
         log.debug("revert");
+        ctx.getProviderState().revert();
     }
 
     @Override

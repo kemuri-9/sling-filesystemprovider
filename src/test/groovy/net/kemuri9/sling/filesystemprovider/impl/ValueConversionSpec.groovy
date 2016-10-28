@@ -39,6 +39,7 @@ class ValueConversionSpec extends Specification {
         Object obj = ValueConversion.convert(lval, targetClass)
 
         then:
+        obj != null
         obj instanceof Number
         Number num = obj
         num.longValue() == lval
@@ -52,7 +53,21 @@ class ValueConversionSpec extends Specification {
         longVal == lval
 
         where:
-        targetClass << [Long, Short, Float, Double, Integer] // no Byte due to the truncation
+        targetClass << [Long, Short, Float, Double, Integer, BigDecimal, BigInteger] // no Byte due to the truncation
+    }
+
+    def 'test conversion of short to BigInteger'() {
+        setup:
+        short sval = 400
+
+        when:
+        Object obj = ValueConversion.convert(sval, BigInteger)
+
+        then:
+        obj != null
+        obj instanceof BigInteger
+        BigInteger big = obj as BigInteger
+        big.shortValue() == sval
     }
 
     def 'test conversion of primitive boxing'() {
@@ -152,5 +167,13 @@ class ValueConversionSpec extends Specification {
         str2 != null
         str2 instanceof String
         str2 == time
+
+        when:
+        Object cal3 = ValueConversion.convert(zdt, Calendar.class)
+
+        then:
+        cal3 != null
+        cal3 instanceof Calendar
+        cal3 == cal
     }
 }

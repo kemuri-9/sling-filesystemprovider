@@ -20,15 +20,13 @@ import java.io.InputStream;
 import java.util.Map;
 
 import org.apache.sling.api.resource.ModifiableValueMap;
-import org.apache.sling.commons.json.JSONException;
-import org.apache.sling.commons.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * An implementation of {@link ModifiableValueMap} for updating/storing properties
  */
-public class FileSystemProviderModifiableValueMap extends FileSystemProviderAbstractPropertyMap
+final class FileSystemProviderModifiableValueMap extends FileSystemProviderAbstractPropertyMap
     implements ModifiableValueMap {
 
     /** slf4j logger */
@@ -43,9 +41,11 @@ public class FileSystemProviderModifiableValueMap extends FileSystemProviderAbst
         if (m == null || m.isEmpty()) {
             return;
         }
-        for (Map.Entry<? extends String, ? extends Object> entry : m.entrySet()) {
-            put(entry.getKey(), entry.getValue());
-        }
+        m.entrySet().forEach(this::put);
+    }
+
+    private void put(Map.Entry<? extends String, ? extends Object> entry) {
+        put(entry.getKey(), entry.getValue());
     }
 
     @Override
@@ -60,24 +60,12 @@ public class FileSystemProviderModifiableValueMap extends FileSystemProviderAbst
             }
         }
 
-        Object ret = getInternal(key);
-        try {
-            JSONObject jsonObj = PropertyFactory.createJSONPropertyObject(value);
-            resource.addProperty(key, jsonObj);
-        } catch (JSONException e) {
-            log.error("Error occurred while updating data");
-        }
-
-        return ret;
+        return resource.addProperty(key, value);
     }
 
     @Override
     public Object remove(Object key) {
         String sKey = getKey(key, false);
-        Object oldData = resource.removeProperty(sKey);
-        if (oldData == null || !(oldData instanceof JSONObject)) {
-            return null;
-        }
-        return PropertyFactory.createPropertyValue(resource.getPath(), (JSONObject) oldData);
+        return resource.removeProperty(sKey);
     }
 }

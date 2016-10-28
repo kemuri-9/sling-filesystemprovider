@@ -20,24 +20,28 @@ import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Array;
-import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.Function;
 
-import org.apache.sling.commons.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +50,12 @@ import net.kemuri9.sling.filesystemprovider.Binary;
 @SuppressWarnings("unchecked")
 final class ValueConversion {
 
+    /** Map of functions of how to convert from class A to class B. */
+    private static final TreeMap<Class<?>, Map<Class<?>, Function<?,?>>> FUNCTION_TABLE = new TreeMap<>(Util.COMPARATOR_CLASS);
+
+    /** classes to ignore when looking for intermediary conversion classes */
+    private static final Collection<Class<?>> SCRUB_CLASSES = new ArrayList<>();
+
     /** java time Full ISO 8601 format */
     private static final DateTimeFormatter JT_FULL_ISO_8601 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSxxx");
 
@@ -53,22 +63,6 @@ final class ValueConversion {
 
     /** slf4j logger */
     private static final Logger log = LoggerFactory.getLogger(ValueConversion.class);
-
-    static class JSONStorage {
-        /** the value to store in the JSON */
-        public final Object value;
-        /** the state of the value being a binary data value. */
-        public final boolean isBinary;
-
-        public JSONStorage(Object value) {
-            this(value, false);
-        }
-
-        public JSONStorage(Object value, boolean isBinary) {
-            this.value = value;
-            this.isBinary = isBinary;
-        }
-    }
 
     /**
      * Conversion on values that should be always converted to something else when a type is not specified.
@@ -94,10 +88,24 @@ final class ValueConversion {
 //    }
 
     /**
+     * A small type-coercing method for the purpose of chaining method references
+     * together without casting or intermediate assignments.
+     * <A> the origin type
+     * <B> the intermediary type
+     * <C> the target type
+     * @param func1 the first function
+     * @param func2 the second function
+     * @return {@code func1.andThen(func2)}
+     */
+    private static <A,B,C> Function<A,C> andThen(Function<A,B> func1, Function<? super B, ? extends C> func2) {
+        return func1.andThen(func2);
+    }
+
+    /**
      * Convert the provided value into a new target type
      * @param <T> the type of the class
      * @param val the value to convert
-     * @param clazz the clazz type to convert into
+     * @param clazz the class type to convert into
      * @return the converted value, or {@code} null if it could not be converted
      */
     static <T> T convert(Object val, Class<T> clazz) {
@@ -117,98 +125,28 @@ final class ValueConversion {
         if (clazz.isArray()) {
             return (T) convertToArray(val, clazz.getComponentType());
         }
-        // string conversions
-        if (String.class.equals(clazz)) {
-            return (T) convertToString(val);
-        }
-        // number conversions
-        if (val instanceof Number && Number.class.isAssignableFrom(clazz)) {
-            T numVal = convertToNumber(val, clazz);
-            if (numVal != null) {
-                return numVal;
-            }
-        }
-        // date conversions
-        if (Date.class.isAssignableFrom(clazz)) {
-            T dateVal = convertToDate(val, clazz);
-            if (dateVal != null) {
-                return dateVal;
-            }
-        }
-        // calendar conversions
-        if (Calendar.class.isAssignableFrom(clazz)) {
-            T calVal = convertToCalendar(val, clazz);
-            if (calVal != null) {
-                return calVal;
-            }
-        }
-        // time conversions
-        if (TemporalAccessor.class.isAssignableFrom(clazz)) {
-            T timeVal = convertToTime(val, clazz);
-            if (timeVal != null) {
-                return timeVal;
-            }
-        }
-        // Binary conversions
-        if (val instanceof Binary) {
-            Binary bin = (Binary) val;
-            // if some number is desired, then use the length of the binary for this purpose
-            if (Number.class.isAssignableFrom(clazz)) {
-                return convert(bin.getLength(), clazz);
-            }
-            // if input stream is desired, then get the stream
-            if (InputStream.class.equals(clazz)) {
-                return (T) Util.getBinaryStreamQuietly(bin);
-            }
-        }
-        if (val instanceof String) {
-            // try by string constructor
-            try {
-                return clazz.getConstructor(String.class).newInstance((String) val);
-            } catch (NoSuchMethodException | InstantiationException | IllegalAccessException
-                    | IllegalArgumentException | InvocationTargetException | SecurityException e) {
-                log.info("Unable to find, access, or invoke String constructor on {}", clazz.getName());
-            }
-        }
-        // deserialize case
-        if ((val instanceof InputStream || val instanceof Binary) && Serializable.class.isAssignableFrom(clazz)) {
-            log.trace("Attempting deserialization converstion of binary into {}", clazz.getName());
 
-            InputStream binary = (val instanceof InputStream) ? (InputStream) val : Util.getBinaryStreamQuietly((Binary) val);
-            Object deserialized = null;
-            try (Util.SpecificClassLoadingObjectInputStream objInputStream = new Util.SpecificClassLoadingObjectInputStream(Util.getClassLoader(), binary);) {
-                deserialized = objInputStream.readObject();
-                objInputStream.close();
-                return (T) deserialized;
-            } catch (IOException | ClassNotFoundException e) {
-                log.error("Error deserializing serializable class data", e);
-                return null;
-            } catch (ClassCastException e) {
-                log.error("deserialized object was not expected type: was {}, expected {}",
-                        deserialized.getClass().getName(), clazz.getName());
-                return null;
-            }
+        Class<Object> valClass = (Class<Object>) val.getClass();
+        Function<Object, T> valToDesired = findFunction(valClass, clazz);
+        if (valToDesired != null) {
+            return valToDesired.apply(val);
         }
-        // serialize case
-        if (val instanceof Serializable && (InputStream.class.isAssignableFrom(clazz) || Binary.class.isAssignableFrom(clazz))) {
-            log.trace("Attempting serialization on {}", val);
-            try {
-                @SuppressWarnings("resource")
-                FileBinary temporary = new FileBinary();
-                ObjectOutputStream output = new ObjectOutputStream(temporary.getOutputStream());
-                output.writeObject(val);
-                output.close();
-                // if the caller really wants InputStream, then do what we can to clean up the leak.
-                if (InputStream.class.isAssignableFrom(clazz)) {
-                    temporary.setDeleteOnFinalize(true);
-                    return (T) temporary.getStream();
+        // special case all the serializable possibilities
+        if (val instanceof Binary && Serializable.class.isAssignableFrom(clazz)) {
+            Object newVal = binaryToSerializable((Binary) val);
+            if (newVal != null) {
+                try {
+                    return clazz.cast(newVal);
+                } catch (ClassCastException e) {
+                    log.error("error casting {} to be {}", newVal, clazz.getName());
                 }
-            } catch (IOException e) {
-                log.error("Error serializing class data", e);
-                return null;
             }
         }
-        log.warn("Unable to convert {} into {}", val, clazz.getName());
+        // special case for toString
+        if (clazz.equals(String.class)) {
+           return clazz.cast(val.toString());
+        }
+        log.debug("could not find function to convert from {} to {}", valClass, clazz);
         return null;
     }
 
@@ -273,185 +211,290 @@ final class ValueConversion {
         return array;
     }
 
-    /**
-     * Convert the provided value into a {@link Calendar} or derived type.
-     * @param <T> the type of the class
-     * @param val the value to convert
-     * @param clazz the specific {@link Calendar} type to convert into
-     * @return the value converted into the specified type, or {@code null} if not possible.
-     */
-    private static <T> T convertToCalendar(Object val, Class<T> clazz) {
-        if (val instanceof String) {
-            val = JT_FULL_ISO_8601.parse((String) val, ZonedDateTime::from);
+    private static GregorianCalendar dateToCalendar(Date date) {
+        GregorianCalendar newCal = new GregorianCalendar();
+        newCal.setTime(date);
+        return newCal;
+    }
+
+    private static Serializable binaryToSerializable(Binary bin) {
+        log.trace("Attempting deserialization converstion of binary");
+
+        Object deserialized = null;
+        try (Util.SpecificClassLoadingObjectInputStream objInputStream =
+                new Util.SpecificClassLoadingObjectInputStream(Util.getClassLoader(), Util.getBinaryStreamQuietly(bin))) {
+            deserialized = objInputStream.readObject();
+            objInputStream.close();
+            return (Serializable) deserialized;
+        } catch (IOException | ClassNotFoundException e) {
+            log.error("Error deserializing serializable class data", e);
+            return null;
+        } catch (ClassCastException e) {
+            log.error("deserialized object {} was not serializable",
+                    deserialized.getClass().getName());
+            return null;
         }
-        if (clazz.isAssignableFrom(GregorianCalendar.class)) {
-            if (val instanceof ZonedDateTime) {
-                return (T) GregorianCalendar.from((ZonedDateTime) val);
+    }
+
+    private static Binary serializableToBinary(Serializable val) {
+        try {
+            FileBinary temporary = new FileBinary();
+            try (ObjectOutputStream output = new ObjectOutputStream(temporary.getOutputStream())) {
+                output.writeObject(val);
+            } catch (IOException e) {
+                log.error("Error serializing class data", e);
+                return null;
             }
-            if (val instanceof Date) {
-                GregorianCalendar newCal = new GregorianCalendar();
-                newCal.setTime((Date) val);
-                return (T) newCal;
-            }
-            if (val instanceof Number) {
-                GregorianCalendar newCal = new GregorianCalendar();
-                newCal.setTimeInMillis(((Number) val).longValue());
-                return (T) newCal;
-            }
+            return temporary;
+        } catch (IOException e) {
+            log.error("Error preparing for serialization", e);
         }
         return null;
     }
 
+    private static InputStream serializableToInputStream(Serializable val) {
+        Util.CopyStream copyStream = new Util.CopyStream(FSPConstants.BUFFER_SIZE);
+        try (ObjectOutputStream output = new ObjectOutputStream(copyStream)) {
+            output.writeObject(val);
+        } catch (IOException e) {
+            log.error("Error serializing class data", e);
+            return null;
+        }
+        return copyStream.toInputStream();
+    }
+
     /**
-     * Convert the provided value into a {@link Date} or derived type.
-     * @param <T> the type of the class
-     * @param val the value to convert
-     * @param clazz the specific {@link Date} type to convert into.
-     * @return the value converted into the specified type, or {@code null} if not possible.
+     * Put a function into the conversion table.
+     * @param classA the origin class
+     * @param classB the target class
+     * @param func the function on how to convert from the origin to the target
      */
-    private static <T> T convertToDate(Object val, Class<T> clazz) {
-        if (java.sql.Timestamp.class.equals(clazz)) {
-            if (val instanceof String) {
-                return (T) java.sql.Timestamp.valueOf((String) val);
-            }
-            if (val instanceof Instant) {
-                return (T) java.sql.Timestamp.from((Instant) val);
-            }
-            if (val instanceof Number) {
-                return (T) new java.sql.Timestamp(((Number) val).longValue());
-            }
+    private static <A,B> void putFunction(Class<A> classA, Class<B> classB, Function<? super A,? extends B> func) {
+        Map<Class<?>, Function<?,?>> subMap = FUNCTION_TABLE.get(classA);
+        if (subMap == null) {
+            subMap = new TreeMap<>(Util.COMPARATOR_CLASS);
+            FUNCTION_TABLE.put(classA, subMap);
         }
-        if (java.sql.Time.class.equals(clazz)) {
-            if (val instanceof String) {
-                return (T) java.sql.Time.valueOf((String) val);
-            }
-            if (val instanceof LocalTime) {
-                return (T) java.sql.Time.valueOf((LocalTime) val);
-            }
-            if (val instanceof Number) {
-                return (T) new java.sql.Time(((Number) val).longValue());
-            }
+        subMap.put(classB, func);
+    }
+
+    /**
+     * Retrieve the list of Classes that A can convert into
+     * @param classA the class to retrieve the classes it can convert into
+     * @return the list of Classes that can be converted into. may be empty, but never {@code null}
+     */
+    private static <A> Collection<Class<?>> getConvertableClasses(Class<A> classA) {
+        Map<Class<?>, Function<?,?>> subMap = FUNCTION_TABLE.get(classA);
+        return (subMap == null) ? Collections.emptyList() : subMap.keySet();
+    }
+
+    /**
+     * Perform a lookup against the table for the desired conversion
+     * @param classA the class to convert from
+     * @param classB the class to convert into
+     * @return the function to convert from A to B. {@code null} if one could not be found.
+     */
+    private static <A,B> Function<A,B> getFunction(Class<A> classA, Class<B> classB) {
+        Map<Class<?>, Function<?,?>> subMap = FUNCTION_TABLE.get(classA);
+        return (subMap == null) ? null : (Function<A, B>) subMap.get(classB);
+    }
+
+    /**
+     * Retrieve the list of Classes that A can convert into, for the purpose of intermediary transforms.
+     * @param classA the class to retrieve the classes it can convert into
+     * @return the list of Classes that can be converted into. may be empty, but never {@code null}
+     */
+    private static <A> Collection<Class<?>> getScrubbedConvertableClasses(Class<?> classA) {
+        Collection<Class<?>> classes = getConvertableClasses(classA);
+        // only copy and for read-write if needed
+        if (!Collections.disjoint(classes, SCRUB_CLASSES)) {
+            classes = new ArrayList<>(classes);
+            classes.removeAll(SCRUB_CLASSES);
         }
-        if (java.sql.Date.class.equals(clazz)) {
-            if (val instanceof LocalDate) {
-                return (T) java.sql.Date.valueOf((LocalDate) val);
-            }
-            if (val instanceof String) {
-                return (T) java.sql.Date.valueOf((String) val);
-            }
-            if (val instanceof Number) {
-                return (T) new java.sql.Date(((Number) val).longValue());
-            }
-        }
-        if (java.util.Date.class.equals(clazz)) {
-            if (val instanceof Calendar) {
-                return (T) ((Calendar) val).getTime();
-            }
-            if (val instanceof Instant) {
-                return (T) java.util.Date.from((Instant) val);
-            }
-            if (val instanceof Number) {
-                return (T) new java.util.Date(((Number) val).longValue());
-            }
+
+        return classes;
+    }
+
+    /**
+     * Parse a string into a {@link Date} object
+     * @param str the string to parse into a Date
+     * @return the string to parse
+     */
+    private static Date stringToDate(String str) {
+        try {
+            return SDF_FULL_ISO_8601.parse(str);
+        } catch (ParseException e) {
+            log.debug("failed to parse {} as Date", str);
         }
         return null;
     }
 
+    static {
+        // build up our conversion LUT
+        putFunction(Binary.class, String.class, Binary::getName);
+        putFunction(Binary.class, Long.class, Binary::getLength);
+        putFunction(Binary.class, InputStream.class, Util::getBinaryStreamQuietly);
+        putFunction(Binary.class, Serializable.class, ValueConversion::binaryToSerializable);
+
+        putFunction(Calendar.class, String.class, SDF_FULL_ISO_8601::format);
+        putFunction(Calendar.class, Instant.class, Calendar::toInstant);
+        putFunction(Calendar.class, Date.class, Calendar::getTime);
+
+        putFunction(Date.class, GregorianCalendar.class, ValueConversion::dateToCalendar);
+        putFunction(Date.class, Long.class, Date::getTime);
+        putFunction(Date.class, String.class, SDF_FULL_ISO_8601::format);
+
+        putFunction(Double.class, BigDecimal.class, BigDecimal::valueOf);
+
+        putFunction(GregorianCalendar.class, ZonedDateTime.class, GregorianCalendar::toZonedDateTime);
+        putFunction(GregorianCalendar.class, String.class, andThen(GregorianCalendar::toZonedDateTime, JT_FULL_ISO_8601::format));
+
+        putFunction(Instant.class, Date.class, Date::from);
+        putFunction(Instant.class, Long.class, Instant::toEpochMilli);
+        putFunction(Instant.class, java.sql.Timestamp.class, java.sql.Timestamp::from);
+
+        putFunction(LocalDate.class, java.sql.Date.class, java.sql.Date::valueOf);
+
+        putFunction(LocalTime.class, java.sql.Time.class, java.sql.Time::valueOf);
+
+        putFunction(Long.class, BigInteger.class, BigInteger::valueOf);
+        putFunction(Long.class, java.sql.Date.class, java.sql.Date::new);
+        putFunction(Long.class, Date.class, Date::new);
+        putFunction(Long.class, java.sql.Time.class, java.sql.Time::new);
+        putFunction(Long.class, java.sql.Timestamp.class, java.sql.Timestamp::new);
+
+        putFunction(Number.class, Byte.class, Number::byteValue);
+        putFunction(Number.class, Double.class, Number::doubleValue);
+        putFunction(Number.class, Float.class, Number::floatValue);
+        putFunction(Number.class, Integer.class, Number::intValue);
+        putFunction(Number.class, Long.class, Number::longValue);
+        putFunction(Number.class, Short.class, Number::shortValue);
+
+        putFunction(ZonedDateTime.class, String.class, JT_FULL_ISO_8601::format);
+        putFunction(ZonedDateTime.class, GregorianCalendar.class, GregorianCalendar::from);
+
+        putFunction(Serializable.class, Binary.class, ValueConversion::serializableToBinary);
+        putFunction(Serializable.class, InputStream.class, ValueConversion::serializableToInputStream);
+
+        Function<String, ZonedDateTime> strToZDT = (String s) -> { return JT_FULL_ISO_8601.parse(s, ZonedDateTime::from); };
+        Function<String, GregorianCalendar> strToCal = strToZDT.andThen(GregorianCalendar::from);
+        putFunction(String.class, java.sql.Date.class, java.sql.Date::valueOf);
+        putFunction(String.class, Date.class, ValueConversion::stringToDate);
+        putFunction(String.class, Calendar.class, strToCal);
+        putFunction(String.class, GregorianCalendar.class, strToCal);
+        putFunction(String.class, java.sql.Time.class, java.sql.Time::valueOf);
+        putFunction(String.class, ZonedDateTime.class, strToZDT);
+        putFunction(String.class, java.sql.Timestamp.class, java.sql.Timestamp::valueOf);
+
+        putFunction(java.sql.Timestamp.class, Instant.class, java.sql.Timestamp::toInstant);
+
+
+        // ignore the following classes as possible intermediaries for conversions.
+        SCRUB_CLASSES.add(String.class);
+        SCRUB_CLASSES.add(InputStream.class);
+        SCRUB_CLASSES.add(Serializable.class);
+        SCRUB_CLASSES.add(Binary.class);
+    }
+
     /**
-     * Convert the provided value into a {@link Number} or derived type.
-     * @param <T> the type of the class
-     * @param val the value to convert
-     * @param clazz the specific {@link Date} type to convert into.
-     * @return the value converted into the specified type, or {@code null} if not possible.
+     * Retrieve the class hierarchy chain for the specified class
+     * @param clazz the class to retrieve its hierarchy.
+     * @return the hierarchy for the class. it should be noted that the
+     * provided class is included in its own hierarchy.
      */
-    private static <T> T convertToNumber(Object val, Class<T> clazz) {
-        Number numVal = (Number) val;
-        if (BigDecimal.class.equals(clazz)) {
-            return (T) BigDecimal.valueOf(numVal.doubleValue());
-        }
-        if (BigInteger.class.equals(clazz)) {
-            return (T) BigInteger.valueOf(numVal.longValue());
-        }
-        if (Byte.class.equals(clazz)) {
-            return (T) new Byte(numVal.byteValue());
-        }
-        if (Double.class.equals(clazz)) {
-            return (T) new Double(numVal.doubleValue());
-        }
-        if (Float.class.equals(clazz)) {
-            return (T) new Float(numVal.floatValue());
-        }
-        if (Integer.class.equals(clazz)) {
-            return (T) new Integer(numVal.intValue());
-        }
-        if (Long.class.equals(clazz)) {
-            return (T) new Long(numVal.longValue());
-        }
-        if (Short.class.equals(clazz)) {
-            return (T) new Short(numVal.shortValue());
-        }
-        return null;
+    private static Set<Class<?>> getClassHierarchy(Class<?> clazz) {
+        Set<Class<?>> classes = new LinkedHashSet<>();
+        fillClassHierarchy(classes, clazz);
+        return classes;
     }
 
-    private static String convertToString(Object val) {
-        if (val instanceof GregorianCalendar) {
-            val = ((GregorianCalendar) val).toZonedDateTime();
+    /**
+     * fill in the class hierarchy for the specified class
+     * @param classes the current hierarchy
+     * @param clazz the new class to add into the hierarchy
+     */
+    private static void fillClassHierarchy(Set<Class<?>> classes, Class<?> clazz) {
+        /* this will add classes in an inconsistent order:
+         * every hit class is individually traversed in a DFS fashion.
+         * this is a far cry from BFS which may make more logical sense from a technical standpoint,
+         * but I don't think it actually matters in the end... */
+        if (clazz == null)
+            return;
+        if (!classes.add(clazz)) {
+            return;
         }
-        if (val instanceof Calendar || val instanceof Date) {
-            return SDF_FULL_ISO_8601.format(val);
+        fillClassHierarchy(classes, clazz.getSuperclass());
+        for (Class<?> intf : clazz.getInterfaces()) {
+            fillClassHierarchy(classes, intf);
         }
-        if (val instanceof ZonedDateTime) {
-            return JT_FULL_ISO_8601.format((ZonedDateTime) val);
-        }
-        return val.toString();
     }
 
-    private static <T> T convertToTime(Object val, Class<T> clazz) {
-        if (clazz.isAssignableFrom(ZonedDateTime.class)) {
-            if (val instanceof String) {
-                return (T) JT_FULL_ISO_8601.parse((String) val, ZonedDateTime::from);
+    /**
+     * Find the function that can convert from class A to class B
+     * @param classA the origin class
+     * @param classB the target class
+     * @return the function that can convert from the origin to the target class, using intermediary conversions if applicable.
+     * {@code null} if one could not be found
+     */
+    private static <A,B> Function<A, B> findFunction(Class<A> classA, Class<B> classB) {
+        return findFunction(classA, classB, null);
+    }
+
+    /**
+     * Find the function that can convert from class A to class B, with the current intermediaries being interrogated
+     * @param classA the origin class
+     * @param classB the target class
+     * @param intermediaries the intermediaries being used in interrogation use in converting A to a different B.
+     * {@code null} indicates no intermediaries are currently under investigation
+     * @return the function that can convert from the origin to the target class. {@code null} if one could not be found
+     */
+    private static <A,B,Z> Function<A, B> findFunction(Class<A> classA, Class<B> classB,
+            Set<Class<?>> intermediaries) {
+        // try directly A to B
+        Function<?, ?> func = getFunction(classA, classB);
+        if (func != null) {
+            return (Function<A, B>) func;
+        }
+
+        // try by parents of A to B
+        Set<Class<?>> classAHeirarchy = getClassHierarchy(classA);
+        for (Class<?> classAParent : classAHeirarchy) {
+            func = getFunction(classAParent, classB);
+            if (func != null) {
+                return (Function<A, B>) func;
             }
         }
-        return null;
-    }
 
-    /**
-     * Returns an Object of how to store the object in JSON.
-     * @param val the value to store in JSON.
-     * @return a {@link JSONStorage} object for the types that require the extra meta information, otherwise the value to store.
-     */
-    static Object convertToJSONStorage(Object val) {
-        // nulls to convert to the JSON variation
-        if (val == null) {
-            return JSONObject.NULL;
+        // see if B is a super type of something A can convert into
+        for (Class<?> canConvertTo : getConvertableClasses(classA)) {
+            if (classB.isAssignableFrom(canConvertTo)) {
+                func = getFunction(classA, canConvertTo);
+                return (Function<A, B>) func;
+            }
         }
-        // numbers are as-is
-        if (val instanceof Number) {
-            return val;
+
+        // try to find a chain graph that can resolve the desired endpoints.
+        // for now only try and find conversion chains via one intermediary.
+        if (intermediaries == null || intermediaries.size() < 1) {
+            if (intermediaries == null) {
+                intermediaries = new LinkedHashSet<>();
+            }
+            // try by intermediary Z
+            for (Class<?> classAParent : classAHeirarchy) {
+                for (Class<?> classZ : getScrubbedConvertableClasses(classAParent)) {
+                    if (!intermediaries.add(classZ)) {
+                        continue;
+                    }
+                    Function<Z, B> zToB = (Function<Z, B>) findFunction(classZ, classB, intermediaries);
+                    if (zToB != null) {
+                        Function<A, Z> aToZ = (Function<A, Z>) getFunction(classAParent, classZ);
+                        return aToZ.andThen(zToB);
+                    }
+                    intermediaries.remove(classZ);
+                }
+            }
         }
-        // strings are as-is
-        if (val instanceof String) {
-            return val;
-        }
-        // binaries are stored as their name values with the binary flag.
-        if (val instanceof Binary) {
-            return new JSONStorage(((Binary) val).getName(), true);
-        }
-        // the old dates are stored as their milliseconds
-        if (val instanceof java.util.Date) {
-            return ((java.util.Date) val).getTime();
-        }
-        if (val instanceof java.util.Calendar) {
-            return convertToString(val);
-        }
-        if (val instanceof TemporalAccessor) {
-            return convertToString(val);
-        }
-        if (val instanceof Serializable) {
-            log.warn("serializing {} for storage", val);
-            return convertToJSONStorage(convert(val, Binary.class));
-        }
-        // TODO
-        return val.toString();
+
+        return null;
     }
 }

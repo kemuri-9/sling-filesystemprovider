@@ -22,6 +22,9 @@ import org.apache.sling.api.resource.ResourceResolver;
  */
 final class FSPConstants {
 
+    /** buffer size to utilize when creating byte buffers */
+    public static final int BUFFER_SIZE = 4096;
+
     /** Filename extension indicating binary content */
     public static final String FILENAME_EXTENSION_BINARY = ".bin";
 
@@ -58,6 +61,6 @@ final class FSPConstants {
     /** Property name indicating the resource's type */
     public static final String PROPERTY_RESOURCE_TYPE = ResourceResolver.PROPERTY_RESOURCE_TYPE;
 
-    /** String for indicating a path separate within the resource tree  */
+    /** String for indicating a path separator within the resource tree. */
     public static final String RESOURCE_PATH_SEPARATOR = "/";
 }
