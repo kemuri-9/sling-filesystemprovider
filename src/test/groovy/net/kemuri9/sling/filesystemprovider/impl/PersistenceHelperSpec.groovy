@@ -18,9 +18,9 @@ package net.kemuri9.sling.filesystemprovider.impl
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
-import org.apache.sling.commons.json.JSONArray
-import org.apache.sling.commons.json.JSONObject
 import org.apache.sling.settings.SlingSettingsService
+import org.json.JSONArray
+import org.json.JSONObject
 
 import spock.lang.Shared
 import spock.lang.Specification

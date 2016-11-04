@@ -30,9 +30,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeMap;
 
-import org.apache.sling.commons.json.JSONArray;
-import org.apache.sling.commons.json.JSONException;
-import org.apache.sling.commons.json.JSONObject;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -176,6 +176,7 @@ final class PersistenceHelper {
                 arr.put(storage);
             }
         } else {
+            // singly valued type
             Object storage = convertToJSONStorage(obj);
             if (storage instanceof JSONStorage) {
                 JSONStorage jsonStore = (JSONStorage) storage;
