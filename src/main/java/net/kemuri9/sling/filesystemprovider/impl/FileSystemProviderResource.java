@@ -96,17 +96,17 @@ final class FileSystemProviderResource extends AbstractResource {
 
         // if the current state has (modified) properties for this resource, use those instead of the persisted ones.
         Map<String, Object> props = context.getProviderState().modifiedProperties.get(path);
-        if (props != null) {
-            properties = props;
-            return props;
+        // if there are none, then try and read from the persisted data
+        if (props == null) {
+            props = PersistenceHelper.getProperties(this);
         }
-
-        props = PersistenceHelper.getProperties(this);
 
         // if nothing, then default to empty
-        if (properties == null) {
-            properties = new TreeMap<>();
+        if (props == null) {
+            props = new TreeMap<>();
         }
+        // cache result
+        properties = props;
         return properties;
     }
 

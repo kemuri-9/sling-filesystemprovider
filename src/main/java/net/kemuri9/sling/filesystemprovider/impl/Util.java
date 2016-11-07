@@ -101,15 +101,10 @@ final class Util {
         protected Class<?> resolveClass(ObjectStreamClass objectStreamClass)
                 throws IOException, ClassNotFoundException {
 
-            Class<?> clazz = Class.forName(objectStreamClass.getName(), false, classLoader);
-
-            if (clazz != null) {
-                // the classloader knows of the class
-                return clazz;
-            } else {
-                // classloader knows not of class, let the super classloader do it
-                return super.resolveClass(objectStreamClass);
+            if (this.classLoader != null) {
+                return this.classLoader.loadClass(objectStreamClass.getName());
             }
+            return super.resolveClass(objectStreamClass);
         }
 
         @Override
@@ -188,7 +183,7 @@ final class Util {
         primitiveWrapperMap.put(Long.TYPE, Long.class);
         primitiveWrapperMap.put(Double.TYPE, Double.class);
         primitiveWrapperMap.put(Float.TYPE, Float.class);
-        primitiveWrapperMap.put(Void.TYPE, Void.TYPE);
+        primitiveWrapperMap.put(Void.TYPE, Void.class);
 
         Path dir = null;
         try {

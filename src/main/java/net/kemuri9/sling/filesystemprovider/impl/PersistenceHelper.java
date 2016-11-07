@@ -93,6 +93,7 @@ final class PersistenceHelper {
      * Returns an Object of how to store the object in JSON.
      * @param val the value to store in JSON.
      * @return a {@link JSONStorage} object for the types that require the extra meta information, otherwise the value to store.
+     * A return of {@code null} means that the type is unsupported for storage.
      */
     static Object convertToJSONStorage(Object val) {
         // nulls to convert to the JSON variation
@@ -115,25 +116,28 @@ final class PersistenceHelper {
         if (val instanceof Binary) {
             return null;
         }
-        // the old dates are stored as their milliseconds
+        // handling of 'old' dates
         if (val instanceof java.util.Date) {
+            // all the sql types convert to string
+            if (val.getClass().getPackage().getName().equals("java.sql")) {
+                return ValueConversion.convert(val, String.class);
+            }
+            // otherwise convert to longs
             return ((java.util.Date) val).getTime();
         }
+        // Calendars as their strings
         if (val instanceof java.util.Calendar) {
             return ValueConversion.convert(val, String.class);
         }
+        // java 8 times are all stored as strings
         if (val instanceof TemporalAccessor) {
             return ValueConversion.convert(val, String.class);
         }
         if (val instanceof Serializable) {
             return convertToJSONStorage(ValueConversion.convert(val, Binary.class));
         }
-        // non serializable, non basic numbers are converted to strings
-        if (val instanceof Number) {
-            return val.toString();
-        }
-        // TODO
-        return val.toString();
+        // unsupported
+        return null;
     }
 
     /**
@@ -143,7 +147,7 @@ final class PersistenceHelper {
      * @throws JSONException if an error occurs on creating the JSON data
      */
     static JSONObject createJSONPropertyObject(Object obj) throws JSONException {
-        String type = Object.class.toString();
+        String type = Object.class.getName().toString();
         boolean isArray = false;
         if (obj != null) {
             if (obj.getClass().isArray()) {
@@ -154,7 +158,7 @@ final class PersistenceHelper {
                 }
                 type = elemType.getName();
             } else {
-                type = obj.getClass().toString();
+                type = obj.getClass().getName().toString();
             }
         }
 
@@ -243,13 +247,6 @@ final class PersistenceHelper {
         return null;
     }
 
-
-
-
-
-
-
-
     /**
      * Read the binary data indicated by the current value, if applicable.
      * @param path the resource path
@@ -301,17 +298,26 @@ final class PersistenceHelper {
 
         if (values == null) {
             // single value case
-            Object valToConvert = readBinary(path, value, isBinary);
+            Object valToConvert = readBinary(path, deNull(value), isBinary);
             return ValueConversion.convert(valToConvert, clazz);
         } else {
             // multi-value case
             Object vals = Array.newInstance(clazz, values.length());
             for (int valIdx = 0; valIdx < values.length(); ++valIdx) {
                 // use opt instead of get to avoid the JSONException
-                Object val = readBinary(path, values.opt(valIdx), isBinary);
+                Object val = readBinary(path, deNull(values.opt(valIdx)), isBinary);
                 Array.set(vals, valIdx, ValueConversion.convert(val, clazz));
             }
             return vals;
         }
+    }
+
+    /**
+     * Reverse JSON null conversion.
+     * @param obj the object to de JSON null.
+     * @return the truely null object.
+     */
+    private static Object deNull(Object obj) {
+        return (obj == null || JSONObject.NULL.equals(obj)) ? null : obj;
     }
 }

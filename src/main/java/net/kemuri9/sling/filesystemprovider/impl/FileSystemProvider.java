@@ -133,11 +133,20 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
         log.debug("authenticating with info {}", authenticationInfo);
         FileSystemProviderState state = new FileSystemProviderState();
 
-        Object authAdmin = authenticationInfo.get(ResourceProvider.AUTH_ADMIN);
-        boolean isAdmin = (authAdmin instanceof Boolean) && ((Boolean) authAdmin).booleanValue();
+        String username = ValueConversion.convert(authenticationInfo.get(ResourceResolverFactory.USER), String.class);
+        String password = ValueConversion.convert(authenticationInfo.get(ResourceResolverFactory.PASSWORD), String.class);
+        String newPassword = ValueConversion.convert(authenticationInfo.get(ResourceResolverFactory.NEW_PASSWORD), String.class);
+        String usernameImpersonation = ValueConversion.convert(authenticationInfo.get(ResourceResolverFactory.USER_IMPERSONATION), String.class);
+
+        Boolean authAdmin = ValueConversion.convert(authenticationInfo.get(ResourceProvider.AUTH_ADMIN), Boolean.class);
+        boolean isAdmin = (authAdmin != null) && authAdmin.booleanValue();
         if (isAdmin) {
             log.debug("requesting an admin session");
+            // TODO: configurable?
             state.username = "admin";
+        } else {
+            // TODO: plain session
+            state.username = username;
         }
 
         return state;
@@ -158,7 +167,8 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
     @Override
     public boolean copy(ResolveContext<FileSystemProviderState> ctx, String srcAbsPath, String destAbsPath)
             throws PersistenceException {
-        log.debug("copy");
+        log.debug("copy({},{})", srcAbsPath, destAbsPath);
+        // copying should be supported
         return true;
     }
 
@@ -239,7 +249,6 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
     public boolean move(ResolveContext<FileSystemProviderState> ctx, String srcAbsPath, String destAbsPath)
             throws PersistenceException {
         log.debug("move from '{}' to '{}'", srcAbsPath, destAbsPath);
-        // moving should be supported
         return true;
     }
 
@@ -281,7 +290,7 @@ public final class FileSystemProvider extends ResourceProvider<FileSystemProvide
             }
             return;
         }
-        // add some properties
+        // TODO: add some properties?
     }
 
     @Override

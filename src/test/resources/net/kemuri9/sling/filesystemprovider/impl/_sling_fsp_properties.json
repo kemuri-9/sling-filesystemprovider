@@ -11,6 +11,10 @@
     "type": "java.lang.Double",
     "values": [3.14, 1.73]
   },
+  "floatValues" : {
+    "type": "float",
+    "values": [1.414, 2.718]
+  },
   "calendarValue" : {
     "type": "java.util.GregorianCalendar",
     "value": "2016-06-07T19:40:20.618+09:00"

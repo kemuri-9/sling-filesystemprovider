@@ -41,9 +41,6 @@ final class FileBinary implements Binary {
     /** state of the file being temporary */
     private boolean isTemporary;
 
-    /** This flag to be deleted when finalization is called */
-    private boolean deleteOnFinalize;
-
     /**
      * Create a new temporary file for storage that is yet to be written in.
      * @throws IOException when an IO Error occurs trying to create the temporary file.
@@ -51,7 +48,6 @@ final class FileBinary implements Binary {
     FileBinary() throws IOException {
         file = Files.createTempFile(Util.getTemporaryDirectory(), FSPConstants.FILENAME_PREFIX_FSP, FSPConstants.FILENAME_EXTENSION_BINARY);
         isTemporary = true;
-        deleteOnFinalize = false;
     }
 
     /**
@@ -68,7 +64,6 @@ final class FileBinary implements Binary {
         }
         this.file = file;
         isTemporary = file.getFileName().toString().contains(FSPConstants.FILENAME_FRAGMENT_TEMPORARY);
-        deleteOnFinalize = false;
     }
 
     /**
@@ -83,7 +78,6 @@ final class FileBinary implements Binary {
         }
         input.close();
         isTemporary = true;
-        deleteOnFinalize = false;
     }
 
     @Override
@@ -110,20 +104,18 @@ final class FileBinary implements Binary {
     }
 
     @Override
-    public void finalize() {
-        if (deleteOnFinalize) {
-            dispose();
-        }
-    }
-
-    @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof FileBinary)) {
             return false;
         }
 
         FileBinary fileBin = (FileBinary) obj;
-        return file.equals(fileBin.file);
+        try {
+            return Files.isSameFile(file, fileBin.file);
+        } catch (IOException | SecurityException e) {
+            // fall back to path checking
+            return file.toAbsolutePath().toString().equals(fileBin.file.toAbsolutePath().toString());
+        }
     }
 
     @Override
@@ -162,14 +154,6 @@ final class FileBinary implements Binary {
     }
 
     /**
-     * Retrieve the state of this FileBinary deleting its content when finalized.
-     * @return state of the content being deleted on finalization.
-     */
-    public boolean isDeleteOnFinalize() {
-        return deleteOnFinalize;
-    }
-
-    /**
      * Retrieve the state of this FileBinary representing temporary binary storage.
      * @return state of this FileBinary representing temporary binary storage.
      */
@@ -194,17 +178,9 @@ final class FileBinary implements Binary {
         this.isTemporary = isTemporary;
     }
 
-    /**
-     * Set the state of this FileBinary needing to be deleted on finalization.
-     * @param deleteOnFinalize new state of needing deletion on finalization.
-     */
-    public void setDeleteOnFinalize(boolean deleteOnFinalize) {
-        this.deleteOnFinalize = deleteOnFinalize;
-    }
-
     @Override
     public String toString() {
         return new StringBuilder().append(getClass().getName())
-                .append(" path=").append(file.toAbsolutePath()).toString();
+                .append(" name=").append(getName()).toString();
     }
 }

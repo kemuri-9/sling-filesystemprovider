@@ -26,9 +26,12 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalQuery;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -55,9 +58,6 @@ final class ValueConversion {
 
     /** classes to ignore when looking for intermediary conversion classes */
     private static final Collection<Class<?>> SCRUB_CLASSES = new ArrayList<>();
-
-    /** java time Full ISO 8601 format */
-    private static final DateTimeFormatter JT_FULL_ISO_8601 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSxxx");
 
     private static final SimpleDateFormat SDF_FULL_ISO_8601 = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
 
@@ -97,7 +97,7 @@ final class ValueConversion {
      * @param func2 the second function
      * @return {@code func1.andThen(func2)}
      */
-    private static <A,B,C> Function<A,C> andThen(Function<A,B> func1, Function<? super B, ? extends C> func2) {
+    private static <A, B, C> Function<A, C> andThen(Function<A, B> func1, Function<? super B, ? extends C> func2) {
         return func1.andThen(func2);
     }
 
@@ -122,6 +122,7 @@ final class ValueConversion {
         if (clazz.isInstance(val)) {
             return clazz.cast(val);
         }
+        // arrays need to have the elements converted to the specified type
         if (clazz.isArray()) {
             return (T) convertToArray(val, clazz.getComponentType());
         }
@@ -129,7 +130,11 @@ final class ValueConversion {
         Class<Object> valClass = (Class<Object>) val.getClass();
         Function<Object, T> valToDesired = findFunction(valClass, clazz);
         if (valToDesired != null) {
-            return valToDesired.apply(val);
+            try {
+                return valToDesired.apply(val);
+            } catch (Exception e) {
+                log.trace("failed to apply conversion function on {} to convert to {}", val, clazz.getName(), e);
+            }
         }
         // special case all the serializable possibilities
         if (val instanceof Binary && Serializable.class.isAssignableFrom(clazz)) {
@@ -146,7 +151,7 @@ final class ValueConversion {
         if (clazz.equals(String.class)) {
            return clazz.cast(val.toString());
         }
-        log.debug("could not find function to convert from {} to {}", valClass, clazz);
+        log.trace("could not find function to convert from {} to {}", valClass, clazz);
         return null;
     }
 
@@ -252,6 +257,11 @@ final class ValueConversion {
         return null;
     }
 
+    /**
+     * Convert the {@link Serializable} into an {@link InputStream} of its serialized data
+     * @param val the value to serialize into an input stream
+     * @return the InputStream representing the binary data
+     */
     private static InputStream serializableToInputStream(Serializable val) {
         Util.CopyStream copyStream = new Util.CopyStream(FSPConstants.BUFFER_SIZE);
         try (ObjectOutputStream output = new ObjectOutputStream(copyStream)) {
@@ -300,13 +310,23 @@ final class ValueConversion {
     }
 
     /**
+     * Retrieve a function that parses text into a time based type utilizing the provided parser and accessor
+     * @param f the formatter to utilize
+     * @param query the acessor to utilize
+     * @return the generated function
+     */
+    private static <T extends TemporalAccessor> Function<CharSequence, T> getParseFunction(DateTimeFormatter f, TemporalQuery<T> query) {
+        return (CharSequence s) -> { return f.parse(s, query); };
+    }
+
+    /**
      * Retrieve the list of Classes that A can convert into, for the purpose of intermediary transforms.
      * @param classA the class to retrieve the classes it can convert into
      * @return the list of Classes that can be converted into. may be empty, but never {@code null}
      */
     private static <A> Collection<Class<?>> getScrubbedConvertableClasses(Class<?> classA) {
         Collection<Class<?>> classes = getConvertableClasses(classA);
-        // only copy and for read-write if needed
+        // only copy and make read-write if needed
         if (!Collections.disjoint(classes, SCRUB_CLASSES)) {
             classes = new ArrayList<>(classes);
             classes.removeAll(SCRUB_CLASSES);
@@ -331,6 +351,10 @@ final class ValueConversion {
 
     static {
         // build up our conversion LUT
+        putFunction(BigDecimal.class, BigInteger.class, BigDecimal::toBigInteger); // TODO: use toBigIntegerExact?
+
+        putFunction(BigInteger.class, BigDecimal.class, BigDecimal::new);
+
         putFunction(Binary.class, String.class, Binary::getName);
         putFunction(Binary.class, Long.class, Binary::getLength);
         putFunction(Binary.class, InputStream.class, Util::getBinaryStreamQuietly);
@@ -340,6 +364,18 @@ final class ValueConversion {
         putFunction(Calendar.class, Instant.class, Calendar::toInstant);
         putFunction(Calendar.class, Date.class, Calendar::getTime);
 
+        Function<CharSequence, ZonedDateTime> strToZDT = getParseFunction(DateTimeFormatter.ISO_OFFSET_DATE_TIME, ZonedDateTime::from);
+        Function<CharSequence, GregorianCalendar> strToCal = strToZDT.andThen(GregorianCalendar::from);
+        putFunction(CharSequence.class, Calendar.class, strToCal);
+        putFunction(CharSequence.class, GregorianCalendar.class, strToCal);
+        putFunction(CharSequence.class, Instant.class, getParseFunction(DateTimeFormatter.ISO_INSTANT, Instant::from));
+        putFunction(CharSequence.class, LocalDate.class, getParseFunction(DateTimeFormatter.ISO_LOCAL_DATE, LocalDate::from));
+        putFunction(CharSequence.class, LocalDateTime.class, getParseFunction(DateTimeFormatter.ISO_LOCAL_DATE_TIME, LocalDateTime::from));
+        putFunction(CharSequence.class, LocalTime.class, getParseFunction(DateTimeFormatter.ISO_LOCAL_TIME, LocalTime::from));
+        putFunction(CharSequence.class, String.class, CharSequence::toString);
+
+        putFunction(CharSequence.class, ZonedDateTime.class, strToZDT);
+
         putFunction(Date.class, GregorianCalendar.class, ValueConversion::dateToCalendar);
         putFunction(Date.class, Long.class, Date::getTime);
         putFunction(Date.class, String.class, SDF_FULL_ISO_8601::format);
@@ -347,17 +383,24 @@ final class ValueConversion {
         putFunction(Double.class, BigDecimal.class, BigDecimal::valueOf);
 
         putFunction(GregorianCalendar.class, ZonedDateTime.class, GregorianCalendar::toZonedDateTime);
-        putFunction(GregorianCalendar.class, String.class, andThen(GregorianCalendar::toZonedDateTime, JT_FULL_ISO_8601::format));
+        putFunction(GregorianCalendar.class, String.class, andThen(GregorianCalendar::toZonedDateTime, DateTimeFormatter.ISO_OFFSET_DATE_TIME::format));
 
         putFunction(Instant.class, Date.class, Date::from);
         putFunction(Instant.class, Long.class, Instant::toEpochMilli);
+        putFunction(Instant.class, String.class, DateTimeFormatter.ISO_INSTANT::format);
         putFunction(Instant.class, java.sql.Timestamp.class, java.sql.Timestamp::from);
 
         putFunction(LocalDate.class, java.sql.Date.class, java.sql.Date::valueOf);
+        putFunction(LocalDate.class, String.class, DateTimeFormatter.ISO_LOCAL_DATE::format);
+
+        putFunction(LocalDateTime.class, String.class, DateTimeFormatter.ISO_LOCAL_DATE_TIME::format);
+        putFunction(LocalDateTime.class, java.sql.Timestamp.class, java.sql.Timestamp::valueOf);
 
         putFunction(LocalTime.class, java.sql.Time.class, java.sql.Time::valueOf);
+        putFunction(LocalTime.class, String.class, DateTimeFormatter.ISO_LOCAL_TIME::format);
 
         putFunction(Long.class, BigInteger.class, BigInteger::valueOf);
+        putFunction(Long.class, BigDecimal.class, BigDecimal::valueOf);
         putFunction(Long.class, java.sql.Date.class, java.sql.Date::new);
         putFunction(Long.class, Date.class, Date::new);
         putFunction(Long.class, java.sql.Time.class, java.sql.Time::new);
@@ -370,24 +413,36 @@ final class ValueConversion {
         putFunction(Number.class, Long.class, Number::longValue);
         putFunction(Number.class, Short.class, Number::shortValue);
 
-        putFunction(ZonedDateTime.class, String.class, JT_FULL_ISO_8601::format);
-        putFunction(ZonedDateTime.class, GregorianCalendar.class, GregorianCalendar::from);
-
         putFunction(Serializable.class, Binary.class, ValueConversion::serializableToBinary);
         putFunction(Serializable.class, InputStream.class, ValueConversion::serializableToInputStream);
 
-        Function<String, ZonedDateTime> strToZDT = (String s) -> { return JT_FULL_ISO_8601.parse(s, ZonedDateTime::from); };
-        Function<String, GregorianCalendar> strToCal = strToZDT.andThen(GregorianCalendar::from);
-        putFunction(String.class, java.sql.Date.class, java.sql.Date::valueOf);
+        putFunction(String.class, BigDecimal.class, BigDecimal::new);
+        putFunction(String.class, BigInteger.class, BigInteger::new);
+        putFunction(String.class, Boolean.class, Boolean::parseBoolean);
+        putFunction(String.class, Byte.class, Byte::parseByte);
         putFunction(String.class, Date.class, ValueConversion::stringToDate);
-        putFunction(String.class, Calendar.class, strToCal);
-        putFunction(String.class, GregorianCalendar.class, strToCal);
+        putFunction(String.class, Double.class, Double::parseDouble);
+        putFunction(String.class, Float.class, Float::parseFloat);
+        putFunction(String.class, Integer.class, Integer::parseInt);
+        putFunction(String.class, Long.class, Long::parseLong);
+        putFunction(String.class, Short.class, Short::parseShort);
+        putFunction(String.class, java.sql.Date.class, java.sql.Date::valueOf);
         putFunction(String.class, java.sql.Time.class, java.sql.Time::valueOf);
-        putFunction(String.class, ZonedDateTime.class, strToZDT);
         putFunction(String.class, java.sql.Timestamp.class, java.sql.Timestamp::valueOf);
 
-        putFunction(java.sql.Timestamp.class, Instant.class, java.sql.Timestamp::toInstant);
+        putFunction(java.sql.Date.class, LocalDate.class, java.sql.Date::toLocalDate);
+        putFunction(java.sql.Date.class, String.class, java.sql.Date::toString);
 
+        putFunction(java.sql.Time.class, LocalTime.class, java.sql.Time::toLocalTime);
+        putFunction(java.sql.Time.class, String.class, java.sql.Time::toString);
+
+        putFunction(java.sql.Timestamp.class, Instant.class, java.sql.Timestamp::toInstant);
+        putFunction(java.sql.Timestamp.class, LocalDateTime.class, java.sql.Timestamp::toLocalDateTime);
+        putFunction(java.sql.Timestamp.class, String.class, java.sql.Timestamp::toString);
+
+        putFunction(ZonedDateTime.class, String.class, DateTimeFormatter.ISO_OFFSET_DATE_TIME::format);
+        putFunction(ZonedDateTime.class, GregorianCalendar.class, GregorianCalendar::from);
+        // finish LUT for conversions
 
         // ignore the following classes as possible intermediaries for conversions.
         SCRUB_CLASSES.add(String.class);
